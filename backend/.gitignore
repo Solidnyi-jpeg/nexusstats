@@ -1,0 +1,18 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Environment
+.env
+serviceAccountKey.json
+.firebase_b64.txt
+
+# Alembic
+# alembic/versions/
+
+# IDE
+.vscode/
+.idea/
