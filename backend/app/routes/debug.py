@@ -124,7 +124,7 @@ async def test_overview(
 
 @router.get("/achievements")
 async def test_achievements(
-    limit: int = Query(default=200, le=500),
+    limit: int = Query(default=500, le=1000),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Досягнення з реальними відсотками та іконками зі Steam."""
@@ -238,3 +238,23 @@ async def db_stats(db: AsyncSession = Depends(get_db)) -> dict:
         r = await db.execute(text(f"SELECT COUNT(*) FROM {t}"))
         stats[t] = r.scalar()
     return stats
+
+@router.get("/connection")
+async def get_connection(db: AsyncSession = Depends(get_db)) -> dict:
+    """Повертає поточне Steam підключення тестового юзера."""
+    from app.models.platform import PlatformConnection
+    user = await _test_user(db)
+    result = await db.execute(
+        select(PlatformConnection).where(
+            PlatformConnection.user_id == user.id,
+            PlatformConnection.platform == "steam",
+        ).limit(1)
+    )
+    conn = result.scalars().first()
+    if not conn:
+        return {"steam_id": None, "username": None}
+    return {
+        "steam_id": conn.platform_user_id,
+        "username": conn.platform_username,
+        "avatar": conn.avatar_url,
+    }

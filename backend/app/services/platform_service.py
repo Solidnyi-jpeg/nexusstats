@@ -126,7 +126,7 @@ async def sync_steam(db: AsyncSession, connection: PlatformConnection) -> dict:
     await db.commit()
 
     # Синхронізація досягнень — всі ігри що мають статистику
-    top_games = sorted(games_raw, key=lambda x: x.get("playtime_forever", 0), reverse=True)[:50]
+    top_games = sorted(games_raw, key=lambda x: x.get("playtime_forever", 0), reverse=True)[:100]
     semaphore = asyncio.Semaphore(5)
 
     async def sync_ach(g):

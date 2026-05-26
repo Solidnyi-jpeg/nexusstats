@@ -73,25 +73,38 @@ async def steam_sync(
 @router.get("/steam/search")
 async def steam_search(query: str) -> dict:
     """Пошук гравця по нікнейму або Steam ID."""
+    if not query or not query.strip():
+        return {"found": False, "error": "Empty query"}
+
+    query = query.strip()
     steam_id = None
+
+    # Якщо це числовий Steam ID
     if query.isdigit() and len(query) >= 15:
         steam_id = query
     else:
+        # Пробуємо vanity URL
         steam_id = await steam_client.search_by_vanity(query)
+        # Пробуємо також без пробілів і спецсимволів
+        if not steam_id:
+            clean = query.lower().replace(" ", "").replace("_", "")
+            steam_id = await steam_client.search_by_vanity(clean)
 
     if not steam_id:
-        return {"found": False}
+        return {"found": False, "error": "Player not found"}
 
     profile = await steam_client.get_player_summary(steam_id)
     if not profile:
-        return {"found": False}
+        return {"found": False, "error": "Could not load profile"}
 
     return {
         "found": True,
         "steam_id": steam_id,
         "personaname": profile.get("personaname"),
         "avatar": profile.get("avatarfull"),
+        "avatarmedium": profile.get("avatarmedium"),
         "profileurl": profile.get("profileurl"),
+        "personastate": profile.get("personastate", 0),
     }
 
 

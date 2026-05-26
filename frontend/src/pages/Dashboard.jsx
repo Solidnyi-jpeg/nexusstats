@@ -28,6 +28,12 @@ export default function Dashboard() {
     try {
       setLoading(true);
       setError(null);
+      // Перевіряємо чи є підключення
+      const connRes = await import("axios").then(m => m.default.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/debug/connection`));
+      if (!connRes.data.steam_id) {
+        setError("no_connection");
+        return;
+      }
       const res = await getOverview(activePlatform);
       setData(res.data);
     } catch {
@@ -43,6 +49,17 @@ export default function Dashboard() {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: "16px" }}>
       <div style={{ fontSize: "3rem" }}>🎮</div>
       <div style={{ color: "var(--accent)" }}>{t("common.loading")}</div>
+    </div>
+  );
+
+  if (error === "no_connection") return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "70vh", flexDirection: "column", gap: "16px" }}>
+      <div style={{ fontSize: "4rem" }}>🎮</div>
+      <h2 style={{ color: "var(--text-bright)" }}>Steam не підключено</h2>
+      <p style={{ color: "var(--text-secondary)" }}>Підключіть Steam акаунт щоб побачити статистику</p>
+      <button className="btn btn-primary" onClick={() => window.location.href = "/settings"}>
+        Підключити Steam
+      </button>
     </div>
   );
 
