@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, DateTime, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
@@ -33,15 +33,16 @@ class Game(Base, TimestampMixin):
     __tablename__ = "games"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    platform: Mapped[str] = mapped_column(String(32), nullable=False)
-    platform_game_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Додаємо індекс для швидкого пошуку гри за ID платформи
+    platform: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    platform_game_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(512), nullable=False)
     img_icon_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     img_cover_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     genre: Mapped[str | None] = mapped_column(String(128), nullable=True)
     developer: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
-    __table_args__ = (
+    ___table_args__ = (
         UniqueConstraint("platform", "platform_game_id", name="uq_game_platform"),
     )
 
@@ -66,6 +67,7 @@ class PlayerGame(Base, TimestampMixin):
     achievements: Mapped[list["PlayerAchievement"]] = relationship(
         back_populates="player_game", cascade="all, delete-orphan"
     )
+    last_played_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Achievement(Base, TimestampMixin):

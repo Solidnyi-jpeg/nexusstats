@@ -1,30 +1,32 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, delete  # ДОДАНО: delete для швидкої зачистки
+from typing import List
 
-from app.core.dependencies import get_db
+from app.core.dependencies import get_db, get_current_user
 from app.models.user import User
-from app.models.platform import PlatformConnection, PlayerGame, Bookmark
+# ОНОВЛЕНО: додано моделі PlayerGame та PlayerAchievement для каскадного видалення
+from app.models.platform import Bookmark, PlatformConnection, PlayerGame, PlayerAchievement
 from app.services.analytics_service import get_overview
 from app.integrations.steam.client import steam_client
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/profile", tags=["profile"])
 
-
-@router.get("/{steam_id}/public")
-async def public_profile(
-    steam_id: str,
-    db: AsyncSession = Depends(get_db),
+@router.get("/{steam_id}")
+async def get_profile(
+    steam_id: str, 
+    db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """Публічний профіль гравця — завжди показує Steam дані."""
+    """Публічний профіль гравця."""
 
-    # Отримуємо профіль зі Steam
     profile = await steam_client.get_player_summary(steam_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Player not found")
 
-    # Перевіряємо чи є в нашій БД
+    # Перевірка, чи користувач NexusStats
     result = await db.execute(
         select(User).join(PlatformConnection).where(
             PlatformConnection.platform == "steam",
@@ -40,43 +42,20 @@ async def public_profile(
         except Exception:
             analytics = None
 
-    # Якщо аналітики немає — завантажуємо ігри напряму зі Steam
-    if not analytics or not analytics.get("top_games"):
-        try:
-            games_raw = await steam_client.get_owned_games(steam_id)
-            top = sorted(games_raw, key=lambda x: x.get("playtime_forever", 0), reverse=True)[:10]
-            steam_games = []
-            for g in top:
-                app_id = str(g.get("appid", ""))
-                icon_hash = g.get("img_icon_url", "")
-                steam_games.append({
-                    "game_id": g.get("appid"),
-                    "platform": "steam",
-                    "platform_game_id": app_id,
-                    "name": g.get("name", f"App {app_id}"),
-                    "img_icon_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{app_id}/{icon_hash}.jpg" if icon_hash else None,
-                    "playtime_hours": round(g.get("playtime_forever", 0) / 60, 1),
-                    "playtime_2weeks_hours": round(g.get("playtime_2weeks", 0) / 60, 1),
-                    "achievement_count": 0,
-                    "achievement_total": 0,
-                    "achievement_percent": 0,
-                })
-            if not analytics:
-                analytics = {"top_games": steam_games}
-            elif not analytics.get("top_games"):
-                analytics["top_games"] = steam_games
-        except Exception:
-            pass
-
-    # Завжди отримуємо ігри зі Steam API напряму
-    steam_games = []
+    # Отримуємо ігри зі Steam
     try:
         games_raw = await steam_client.get_owned_games(steam_id)
-        top_games = sorted(games_raw, key=lambda x: x.get("playtime_forever", 0), reverse=True)[:10]
-        for g in top_games:
+    except Exception:
+        games_raw = []
+
+    # Форматуємо топ ігор
+    top_games = []
+    if games_raw:
+        sorted_games = sorted(games_raw, key=lambda x: x.get("playtime_forever", 0), reverse=True)[:10]
+        for g in sorted_games:
             app_id = str(g.get("appid", ""))
             icon_hash = g.get("img_icon_url", "")
-            steam_games.append({
+            top_games.append({
                 "game_id": g.get("appid"),
                 "platform": "steam",
                 "platform_game_id": app_id,
@@ -88,30 +67,98 @@ async def public_profile(
                 "achievement_total": 0,
                 "achievement_percent": 0,
             })
-    except Exception:
-        pass
-
-    total_games = 0
-    total_hours = 0.0
-    try:
-        all_games = await steam_client.get_owned_games(steam_id)
-        total_games = len(all_games)
-        total_hours = round(sum(g.get("playtime_forever", 0) for g in all_games) / 60, 1)
-    except Exception:
-        pass
 
     return {
         "steam_id": steam_id,
         "personaname": profile.get("personaname"),
         "avatar": profile.get("avatarfull"),
         "profileurl": profile.get("profileurl"),
+        "personastate": profile.get("personastate", 0),
         "is_synced": user is not None,
-        "total_games": total_games,
-        "total_hours": total_hours,
+        "total_games": len(games_raw),
+        "total_hours": round(sum(g.get("playtime_forever", 0) for g in games_raw) / 60, 1),
         "analytics": analytics,
-        "top_games": analytics["top_games"] if analytics else steam_games,
+        "top_games": analytics.get("top_games") if analytics and analytics.get("top_games") else top_games,
     }
 
+@router.get("/{steam_id}/preview")
+async def get_profile_preview(steam_id: str):
+    """Швидкий прев'ю профілю (для карток)."""
+    profile = await steam_client.get_player_summary(steam_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Player not found")
+
+    return {
+        "steam_id": steam_id,
+        "personaname": profile.get("personaname"),
+        "avatar": profile.get("avatarfull"),
+        "personastate": profile.get("personastate", 0),
+        "profileurl": profile.get("profileurl"),
+    }
+
+@router.post("/{steam_id}/sync")
+async def sync_profile_data(steam_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+    """Примусова синхронізація та оновлення даних гравця зі Steam API."""
+    logger.info(f"Запущено примусову синхронізацію для Steam ID: {steam_id}")
+    
+    profile = await steam_client.get_player_summary(steam_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Player not found in Steam")
+
+    # Перевірка налаштувань приватності ігор та профілю (3 = Public)
+    if profile.get("communityvisibilitystate") != 3:
+        return {
+            "status": "warning",
+            "message": "Profile or game details are private. Live synchronization aborted.",
+            "personastate": profile.get("personastate", 0)
+        }
+
+    # КРИТИЧНО: Замість звичайного "success" повертаємо актуальний повний профіль,
+    # щоб фронтенд відразу отримав нові години, ігри та аналітику без зникнення UI.
+    return await get_profile(steam_id=steam_id, db=db)
+
+# КРИТИЧНИЙ ДОДАТОК: Ендпоінт для кнопки відключення акаунта (DELETE /api/v1/profile/connections/{platform})
+@router.delete("/connections/{platform}")
+async def disconnect_platform(
+    platform: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Безпечне відключення ігрової платформи з каскадним очищенням PostgreSQL."""
+    logger.info(f"Користувач ID {current_user.id} ініціював видалення платформи: {platform}")
+
+    # 1. Шукаємо саму прив'язку платформи
+    stmt = select(PlatformConnection).where(
+        PlatformConnection.user_id == current_user.id,
+        PlatformConnection.platform == platform
+    )
+    result = await db.execute(stmt)
+    connection = result.scalar_one_or_none()
+
+    if not connection:
+        raise HTTPException(status_code=404, detail="Підключення платформи не знайдено.")
+
+    # 2. Очищаємо зв'язані таблиці досягнень та ігор, щоб Postgres не кидав ForeignKeyViolationError
+    pg_stmt = select(PlayerGame.id).where(PlayerGame.connection_id == connection.id)
+    pg_res = await db.execute(pg_stmt)
+    player_game_ids = pg_res.scalars().all()
+
+    if player_game_ids:
+        # Спочатку видаляємо досягнення користувача
+        await db.execute(
+            delete(PlayerAchievement).where(PlayerAchievement.player_game_id.in_(player_game_ids))
+        )
+        # Потім видаляємо ігрові сесії користувача
+        await db.execute(
+            delete(PlayerGame).where(PlayerGame.id.in_(player_game_ids))
+        )
+
+    # 3. Видаляємо безпосередньо саму картку підключення
+    await db.delete(connection)
+    await db.commit()
+
+    logger.info(f"Платформу {platform} успішно видалено для користувача {current_user.id}, базу очищено.")
+    return {"status": "success", "message": "Платформу успішно відключено, дані зачищено."}
 
 @router.post("/bookmarks")
 async def add_bookmark(
@@ -120,13 +167,12 @@ async def add_bookmark(
     display_name: str = "",
     avatar_url: str = "",
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    from app.services.user_service import get_or_create
-    user = await get_or_create(db, "test-uid-001", "test@nexusstats.com")
-
+    
     result = await db.execute(
         select(Bookmark).where(
-            Bookmark.user_id == user.id,
+            Bookmark.user_id == current_user.id,
             Bookmark.platform == platform,
             Bookmark.platform_user_id == platform_user_id,
         )
@@ -135,7 +181,7 @@ async def add_bookmark(
         return {"message": "Already bookmarked"}
 
     bm = Bookmark(
-        user_id=user.id,
+        user_id=current_user.id,
         platform=platform,
         platform_user_id=platform_user_id,
         display_name=display_name,
@@ -145,14 +191,14 @@ async def add_bookmark(
     await db.commit()
     return {"message": "Bookmarked"}
 
-
-@router.get("/bookmarks")
-async def list_bookmarks(db: AsyncSession = Depends(get_db)) -> list[dict]:
-    from app.services.user_service import get_or_create
-    user = await get_or_create(db, "test-uid-001", "test@nexusstats.com")
-
+@router.get("/bookmarks", response_model=List[dict])
+async def list_bookmarks(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    
     result = await db.execute(
-        select(Bookmark).where(Bookmark.user_id == user.id)
+        select(Bookmark).where(Bookmark.user_id == current_user.id)
     )
     bookmarks = result.scalars().all()
     return [
@@ -165,19 +211,17 @@ async def list_bookmarks(db: AsyncSession = Depends(get_db)) -> list[dict]:
         for b in bookmarks
     ]
 
-
 @router.delete("/bookmarks/{platform}/{platform_user_id}")
 async def remove_bookmark(
     platform: str,
     platform_user_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ) -> dict:
-    from app.services.user_service import get_or_create
-    user = await get_or_create(db, "test-uid-001", "test@nexusstats.com")
-
+    
     result = await db.execute(
         select(Bookmark).where(
-            Bookmark.user_id == user.id,
+            Bookmark.user_id == current_user.id,
             Bookmark.platform == platform,
             Bookmark.platform_user_id == platform_user_id,
         )
@@ -187,52 +231,3 @@ async def remove_bookmark(
         await db.delete(bm)
         await db.commit()
     return {"message": "Removed"}
-
-@router.get("/{steam_id}/preview")
-async def preview_profile(
-    steam_id: str,
-) -> dict:
-    """Швидкий перегляд профілю без синхронізації в БД."""
-    profile = await steam_client.get_player_summary(steam_id)
-    if not profile:
-        raise HTTPException(status_code=404, detail="Player not found")
-
-    # Отримуємо ігри напряму зі Steam
-    steam_games = []
-    total_games = 0
-    total_hours = 0.0
-    try:
-        games_raw = await steam_client.get_owned_games(steam_id)
-        total_games = len(games_raw)
-        total_hours = round(sum(g.get("playtime_forever", 0) for g in games_raw) / 60, 1)
-        top = sorted(games_raw, key=lambda x: x.get("playtime_forever", 0), reverse=True)[:10]
-        for g in top:
-            app_id = str(g.get("appid", ""))
-            icon_hash = g.get("img_icon_url", "")
-            steam_games.append({
-                "game_id": g.get("appid"),
-                "platform": "steam",
-                "platform_game_id": app_id,
-                "name": g.get("name", f"App {app_id}"),
-                "img_icon_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{app_id}/{icon_hash}.jpg" if icon_hash else None,
-                "playtime_hours": round(g.get("playtime_forever", 0) / 60, 1),
-                "playtime_2weeks_hours": round(g.get("playtime_2weeks", 0) / 60, 1),
-                "achievement_count": 0,
-                "achievement_total": 0,
-                "achievement_percent": 0,
-            })
-    except Exception:
-        pass
-
-    return {
-        "steam_id": steam_id,
-        "personaname": profile.get("personaname"),
-        "avatar": profile.get("avatarfull"),
-        "profileurl": profile.get("profileurl"),
-        "personastate": profile.get("personastate", 0),
-        "is_synced": False,
-        "total_games": total_games,
-        "total_hours": total_hours,
-        "top_games": steam_games,
-        "analytics": None,
-    }

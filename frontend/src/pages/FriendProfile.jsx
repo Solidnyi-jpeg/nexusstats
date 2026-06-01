@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { getPublicProfile } from "../api";
+import { useParams, useNavigate } from "react-router-dom";
 import GameRow from "../components/GameRow";
 import axios from "axios";
 
@@ -10,8 +9,9 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 export default function FriendProfile() {
   const { steamId } = useParams();
   const navigate = useNavigate();
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isUk = i18n.language === "uk";
+  
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [bookmarked, setBookmarked] = useState(false);
@@ -19,21 +19,38 @@ export default function FriendProfile() {
   const [syncMsg, setSyncMsg] = useState("");
 
   useEffect(() => {
-    getPublicProfile(steamId)
-      .then(res => setData(res.data))
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    const fetchPublicProfile = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await axios.get(`${API_URL}/api/v1/profile/${steamId}`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        setData(res.data);
+      } catch (err) {
+        console.error("Помилка завантаження публічного профілю:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPublicProfile();
   }, [steamId]);
 
   const handleSync = async () => {
     setSyncing(true);
     setSyncMsg("");
     try {
-      // Завантажуємо дані напряму зі Steam без зміни головного акаунту
-      const res = await axios.get(`${API_URL}/profile/${steamId}/preview`);
-      setData(res.data);
+      const token = localStorage.getItem("token");
+      
+      // ВИПРАВЛЕНО: Робимо POST-запит на ендпоінт /sync замість GET на /preview
+      const res = await axios.post(`${API_URL}/api/v1/profile/${steamId}/sync`, null, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      
+      // Бекенд повертає повний оновлений профіль, тому стейт не затреться, а години збережуться!
+      setData(res.data); 
       setSyncMsg(isUk ? "✅ Дані завантажено!" : "✅ Data loaded!");
-    } catch {
+    } catch (err) {
+      console.error("Помилка синхронізації даних друга:", err);
       setSyncMsg(isUk ? "❌ Помилка завантаження" : "❌ Failed to load");
     } finally {
       setSyncing(false);
@@ -43,17 +60,19 @@ export default function FriendProfile() {
   const handleBookmark = async () => {
     if (!data) return;
     try {
-      await axios.post(`${API_URL}/profile/bookmarks`, null, {
+      const token = localStorage.getItem("token");
+      await axios.post(`${API_URL}/api/v1/profile/bookmarks`, null, {
         params: {
           platform: "steam",
           platform_user_id: steamId,
           display_name: data.personaname,
           avatar_url: data.avatar,
-        }
+        },
+        headers: { "Authorization": `Bearer ${token}` }
       });
       setBookmarked(true);
     } catch (e) {
-      console.error(e);
+      console.error("Не вдалося зберегти в закладки:", e);
     }
   };
 
@@ -72,7 +91,7 @@ export default function FriendProfile() {
 
   const statusColors = ["var(--border)", "var(--accent-green)", "#66c0f4", "#f8c63a", "#ab47bc", "#ef5350", "#4caf50"];
   const statusLabels = isUk
-    ? ["Офлайн", "Онлайн", "Зайнятий", "Відійшов", "Відійшов", "Не турбувати", "Грає"]
+    ? ["Офлайн", "Онлайн", "Зайнятий", "Відійшов", "Відійшов", "Не турбувати", "Grad"]
     : ["Offline", "Online", "Busy", "Away", "Away", "Snooze", "Playing"];
 
   return (
@@ -87,7 +106,7 @@ export default function FriendProfile() {
         <div style={{ display: "flex", gap: "20px", alignItems: "flex-start", flexWrap: "wrap" }}>
           <div style={{ position: "relative", flexShrink: 0 }}>
             {data.avatar && (
-              <img src={data.avatar} style={{ width: "100px", height: "100px", borderRadius: "10px", display: "block" }} />
+              <img src={data.avatar} style={{ width: "100px", height: "100px", borderRadius: "10px", display: "block" }} alt="" />
             )}
             <div style={{
               position: "absolute", bottom: "4px", right: "4px",
@@ -102,10 +121,10 @@ export default function FriendProfile() {
               {data.personaname}
             </h1>
             <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginBottom: "12px" }}>
-              Steam ID: {data.steam_id}
+              Steam ID: {data.steam_id || steamId}
             </div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <a href={data.profileurl} target="_blank" rel="noreferrer"
+              <a href={data.profileurl || `https://steamcommunity.com/profiles/${steamId}`} target="_blank" rel="noreferrer"
                 className="btn btn-outline" style={{ textDecoration: "none", fontSize: "0.85rem" }}>
                 Steam ↗
               </a>
@@ -129,8 +148,8 @@ export default function FriendProfile() {
           {/* Stats */}
           <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
             {[
-              { label: isUk ? "Ігор" : "Games", value: data.total_games || "🔒", icon: "🎮" },
-              { label: isUk ? "Годин" : "Hours", value: data.total_hours > 0 ? `${data.total_hours}h` : "🔒", icon: "⏱️" },
+              { label: isUk ? "Ігор" : "Games", value: data.total_games !== undefined ? data.total_games : 0, icon: "🎮" },
+              { label: isUk ? "Годин" : "Hours", value: data.total_hours !== undefined ? `${data.total_hours}h` : "0h", icon: "⏱️" },
             ].map(s => (
               <div key={s.label} style={{ textAlign: "center" }}>
                 <div style={{ fontSize: "1.5rem" }}>{s.icon}</div>
@@ -142,11 +161,11 @@ export default function FriendProfile() {
         </div>
       </div>
 
-      {/* Top Games — always show */}
+      {/* Top Games */}
       {data.top_games?.length > 0 && (
         <div className="card" style={{ padding: "24px" }}>
           <h3 style={{ color: "var(--text-bright)", marginBottom: "16px", fontSize: "1rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            🏆 {isUk ? "Топ ігор" : "Top Games"}
+            🏆 {isUk ? "Топ ігор друга" : "Friend's Top Games"}
           </h3>
           {data.top_games.map((g, i) => (
             <GameRow key={g.game_id || i} game={g} rank={i + 1} />
@@ -165,8 +184,8 @@ export default function FriendProfile() {
               </div>
               <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
                 {isUk
-                  ? "Натисніть Синхронізувати щоб імпортувати повну статистику цього гравця"
-                  : "Click Sync to NexusStats to import full stats for this player"
+                  ? "Натисніть Завантажити ігри щоб імпортувати повну статистику цього гравця"
+                  : "Click Load Games to import full stats for this player"
                 }
               </div>
             </div>

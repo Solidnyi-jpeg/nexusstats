@@ -1,65 +1,47 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# 1. Додай імпорт сюди, на самий верх
+from app.core.firebase import init_firebase
 from app.core.config import settings
 from app.routes import auth, platforms, analytics, profile, debug, games
-import os
+from app.integrations.steam.client import steam_client
+from app.integrations.steam.store import store_http_client
 
-
+# 2. Правильно налаштований Lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Firebase
-    try:
-        from app.core.firebase import init_firebase
-        init_firebase()
-        print("Firebase initialized ✅")
-    except Exception as e:
-        print(f"WARNING: Firebase not initialized: {e}")
-
-    # Alembic автоміграції в продакшні
-    if settings.is_production:
-        try:
-            from alembic.config import Config
-            from alembic import command
-            alembic_cfg = Config("alembic.ini")
-            command.upgrade(alembic_cfg, "head")
-            print("Migrations applied ✅")
-        except Exception as e:
-            print(f"Migration warning: {e}")
-
+    # --- СТАРТ СЕРВЕРА ---
+    init_firebase()  # Firebase ініціалізується тут
+    print("🚀 FastAPI та Firebase успішно запущені.")
     yield
+    # --- ЗУПИНКА СЕРВЕРА ---
+    # Тут закриваємо з'єднання
+    await steam_client.close()
+    await store_http_client.aclose()
+    print("🛑 FastAPI зупинено, ресурси звільнено.")
 
+# 3. Ініціалізація FastAPI
+app = FastAPI(title="NexusStats API", version="1.0.0", lifespan=lifespan)
 
-app = FastAPI(
-    title=settings.app_name,
-    version="1.0.0",
-    debug=settings.debug,
-    lifespan=lifespan,
-    docs_url="/docs" if not settings.is_production else None,
-    redoc_url=None,
-)
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(platforms.router)
-app.include_router(analytics.router)
-app.include_router(profile.router)
-app.include_router(games.router)
-app.include_router(debug.router)
-
-
-@app.get("/health")
-async def health() -> dict:
-    return {
-        "status": "ok",
-        "app": settings.app_name,
-        "version": "1.0.0",
-        "environment": settings.environment,
-    }
+# Маршрути
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(platforms.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(profile.router, prefix="/api/v1")
+app.include_router(debug.router, prefix="/api/v1")
+app.include_router(games.router, prefix="/api/v1")

@@ -1,178 +1,230 @@
-import { useState } from "react";
-import { useTranslation } from "react-i18next";
-import { useApp } from "../store";
-import axios from "axios";
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useApp } from '../store'; // 🔌 Підключаємо твій глобальний стор для підтримки мов та тем
+import './Settings.css';
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function Settings() {
-  const { t } = useTranslation();
-  const { theme, toggleTheme, language, changeLanguage } = useApp();
-  const [steamId, setSteamId] = useState("");
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState(null);
-  const [showLogout, setShowLogout] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  
+  // Використовуємо реактивний стан мови з твого спільного провайдера стору
+  const { language } = useApp();
   const isUk = language === "uk";
 
-  const handleSetup = async () => {
-    if (!steamId.trim()) return;
-    try {
-      await axios.post(`http://localhost:8000/debug/setup?steam_id=${steamId.trim()}`);
-      setSyncResult({ type: "success", message: isUk ? "Steam підключено!" : "Steam connected!" });
-    } catch {
-      setSyncResult({ type: "error", message: isUk ? "Помилка підключення" : "Failed to connect" });
-    }
-  };
+  const [connections, setConnections] = useState({
+    steam: false,
+    epic: false,
+    xbox: false,
+    googleplay: false,
+  });
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const handleSync = async () => {
-    setSyncing(true);
-    setSyncResult(null);
+  // 1. ПЕРЕВІРКА НАЯВНИХ ПІДКЛЮЧЕНЬ ПРИ ВХОДІ НА СТОРІНКУ
+  useEffect(() => {
+    const checkExistingConnections = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setLoading(false);
+          return;
+        }
+
+        const response = await fetch(`${API_URL}/api/v1/analytics/overview`, {
+          method: "GET",
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const overviewData = await response.json();
+          // Перевіряємо, чи є підключення до steam у структурі breakdown бекенду
+          const hasSteam = overviewData.platforms_breakdown?.some(p => p.platform === "steam") || overviewData.total_games > 0;
+          setConnections(prev => ({ ...prev, steam: !!hasSteam }));
+        }
+      } catch (error) {
+        console.error('Помилка перевірки статусів платформ:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkExistingConnections();
+  }, []);
+
+  // 2. ОБРОБКА ПОВЕРНЕННЯ ЗІ STEAM OPENID (Твій оригінальний успішний редірект)
+  useEffect(() => {
+    const status = searchParams.get('status');
+    const platform = searchParams.get('platform');
+
+    if (status === 'success' && platform === 'steam') {
+      setConnections(prev => ({ ...prev, steam: true }));
+      setSearchParams({});
+      
+      alert(isUk 
+        ? 'Ваш акаунт Steam успішно синхронізовано через захищену сесію!' 
+        : 'Your Steam account has been successfully synchronized via secure session!'
+      );
+    }
+  }, [searchParams, setSearchParams, isUk]);
+
+  // 3. ІНІЦІАЛІЗАЦІЯ ПІДКЛЮЧЕННЯ STEAM
+  const handleConnectSteam = async () => {
+    setActionLoading(true);
     try {
-      const res = await axios.post("http://localhost:8000/debug/sync");
-      setSyncResult({
-        type: "success",
-        message: isUk
-          ? `Синхронізовано: ${res.data.synced_games} ігор, ${res.data.synced_achievements} досягнень`
-          : `Synced: ${res.data.synced_games} games, ${res.data.synced_achievements} achievements`,
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        alert(isUk 
+          ? 'Помилка: Ви не авторизовані в системі NexusStats. Будь ласка, перезайдіть в акаунт.' 
+          : 'Error: You are not authorized in NexusStats. Please re-login.'
+        );
+        setActionLoading(false);
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/api/v1/platforms/connect/steam`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
-    } catch {
-      setSyncResult({ type: "error", message: isUk ? "Помилка синхронізації" : "Sync failed" });
-    } finally {
-      setSyncing(false);
+      
+      if (response.status === 401) {
+        alert(isUk ? 'Сесія входу застаріла. Будь ласка, перезайдіть у свій акаунт.' : 'Session expired. Please re-login.');
+        setActionLoading(false);
+        return;
+      }
+
+      const data = await response.json();
+      
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(isUk ? 'Не вдалося отримати посилання для авторизації від бекенду.' : 'Failed to receive authorization URL from backend.');
+        setActionLoading(false);
+      }
+    } catch (error) {
+      console.error('Помилка при спробі підключення Steam:', error);
+      alert(isUk ? 'Сталася помилка з\'єднання з сервером API.' : 'API Server connection error.');
+      setActionLoading(false);
     }
   };
 
-  const handleLogout = async () => {
+  // 4. ЛОГІКА ВІДКЛЮЧЕННЯ STEAM АКАУНТА (ОНОВЛЕНО Й ВИПРАВЛЕНО)
+  const handleDisconnectSteam = async () => {
+    const confirmText = isUk 
+      ? "Ви впевнені, що хочете відключити Steam? Усі проіндексовані ігри та досягнення будуть видалені з бази даних."
+      : "Are you sure you want to disconnect Steam? All indexed games and stats will be removed from the database.";
+      
+    if (!window.confirm(confirmText)) return;
+
+    setActionLoading(true);
     try {
-      await axios.post("http://localhost:8000/debug/clear");
-      localStorage.removeItem("nexusstats_setup_done");
-      window.location.href = "/";
-    } catch {
-      setSyncResult({ type: "error", message: isUk ? "Помилка виходу" : "Logout failed" });
+      const token = localStorage.getItem('token');
+      
+      // ВИПРАВЛЕНО: Змінено метод на DELETE та вказано правильний ендпоінт роутера профілів
+      const response = await fetch(`${API_URL}/api/v1/profile/connections/steam`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        setConnections(prev => ({ ...prev, steam: false }));
+        alert(isUk ? "Акаунт успішно відключено!" : "Account disconnected successfully!");
+      } else {
+        alert(isUk ? "Не вдалося відключити акаунт." : "Failed to disconnect account.");
+      }
+    } catch (error) {
+      console.error('Помилка відключення Steam:', error);
+      alert(isUk ? 'Сталася помилка на сервері.' : 'Server error occurred.');
+    } finally {
+      setActionLoading(false);
     }
   };
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh" }}>
+      <div style={{ color: "var(--accent)", fontSize: "1.1rem" }}>{isUk ? "Завантаження конфігурації..." : "Loading configuration..."}</div>
+    </div>
+  );
 
   return (
-    <div style={{ maxWidth: "800px", margin: "0 auto", padding: "28px 24px" }}>
-      <h1 style={{ color: "var(--text-bright)", marginBottom: "24px", fontSize: "1.5rem" }}>
-        ⚙️ {t("settings.title")}
-      </h1>
+    <div className="settings-page">
+      <h2>{isUk ? "Керування підключеними платформами" : "Connected Platforms Management"}</h2>
+      <p className="subtitle">
+        {isUk 
+          ? "Безпечно підключайте ігрові профілі в один клік без ручного введення ID." 
+          : "Securely link your gaming profiles in one click without manual ID input."}
+      </p>
 
-      {/* Appearance */}
-      <div className="card" style={{ padding: "24px", marginBottom: "16px" }}>
-        <h3 style={{ color: "var(--text-bright)", marginBottom: "20px" }}>
-          🎨 {t("settings.appearance")}
-        </h3>
-        <div style={{ display: "flex", gap: "24px", alignItems: "center", marginBottom: "20px" }}>
-          <span style={{ color: "var(--text-secondary)", width: "120px" }}>{t("settings.language")}</span>
-          <div style={{ display: "flex", gap: "8px" }}>
-            {[{ code: "uk", label: "🇺🇦 Українська" }, { code: "en", label: "🇬🇧 English" }].map(l => (
-              <button key={l.code}
-                className={`btn ${language === l.code ? "btn-primary" : "btn-outline"}`}
-                onClick={() => changeLanguage(l.code)}>
-                {l.label}
-              </button>
-            ))}
+      <div className="platforms-grid">
+        {/* Кнопка STEAM */}
+        <div className={`platform-card ${connections.steam ? 'connected' : ''}`}>
+          <div className="platform-info">
+            <div className="platform-icon steam"></div>
+            <div>
+              <h3>Steam</h3>
+              <p>
+                {connections.steam 
+                  ? (isUk ? 'Акаунт успішно підключено' : 'Account connected') 
+                  : (isUk ? 'Офіційна авторизація Steam OpenID' : 'Official Steam OpenID authorization')}
+              </p>
+            </div>
           </div>
-        </div>
-        <div style={{ display: "flex", gap: "24px", alignItems: "center" }}>
-          <span style={{ color: "var(--text-secondary)", width: "120px" }}>{t("settings.theme")}</span>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button className={`btn ${theme === "dark" ? "btn-primary" : "btn-outline"}`}
-              onClick={() => theme !== "dark" && toggleTheme()}>
-              🌙 {t("settings.dark")}
+          {connections.steam ? (
+            <button 
+              onClick={handleDisconnectSteam} 
+              className="btn-secondary disconnect"
+              disabled={actionLoading}
+            >
+              {actionLoading ? "⏳" : (isUk ? "Вимкнути" : "Disconnect")}
             </button>
-            <button className={`btn ${theme === "light" ? "btn-primary" : "btn-outline"}`}
-              onClick={() => theme !== "light" && toggleTheme()}>
-              ☀️ {t("settings.light")}
+          ) : (
+            <button 
+              onClick={handleConnectSteam} 
+              className="btn-platform steam-btn"
+              disabled={actionLoading}
+            >
+              {actionLoading ? "⏳" : (isUk ? "Увійти через Steam" : "Sign in through Steam")}
             </button>
-          </div>
+          )}
         </div>
-      </div>
 
-      {/* Steam */}
-      <div className="card" style={{ padding: "24px", marginBottom: "16px" }}>
-        <h3 style={{ color: "var(--text-bright)", marginBottom: "20px" }}>
-          🎮 {t("settings.platforms")}
-        </h3>
-        <div style={{ background: "var(--bg-hover)", borderRadius: "8px", padding: "14px", marginBottom: "16px" }}>
-          <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "6px" }}>
-            {t("settings.howToFind")}:
+        {/* Інші платформи залишаються заблокованими для майбутніх інтеграцій */}
+        <div className="platform-card disabled">
+          <div className="platform-info">
+            <div className="platform-icon epic"></div>
+            <div>
+              <h3>Epic Games Store</h3>
+              <p>{isUk ? "Доступно незабаром (OAuth2)" : "Coming soon (OAuth2)"}</p>
+            </div>
           </div>
-          <div style={{ color: "var(--text-primary)", fontSize: "0.82rem", lineHeight: 1.8 }}>
-            1. {t("settings.howToFind1")} —{" "}
-            <a href="https://steamid.io" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>steamid.io</a><br />
-            2. {t("settings.howToFind2")}<br />
-            3. {t("settings.howToFind3")}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: "12px", marginBottom: "16px" }}>
-          <input value={steamId} onChange={e => setSteamId(e.target.value)}
-            placeholder="76561198XXXXXXXXX"
-            style={{
-              flex: 1, padding: "10px 14px",
-              background: "var(--bg-primary)", border: "1px solid var(--border)",
-              borderRadius: "var(--radius)", color: "var(--text-primary)", outline: "none",
-            }} />
-          <button className="btn btn-primary" onClick={handleSetup} disabled={!steamId.trim()}>
-            {t("settings.connectSteam")}
+          <button className="btn-platform" disabled>
+            {isUk ? "Підключити" : "Connect"}
           </button>
         </div>
-        <button className="btn btn-outline" onClick={handleSync} disabled={syncing}>
-          {syncing ? t("settings.syncing") : `🔄 ${t("settings.sync")}`}
-        </button>
 
-        {syncResult && (
-          <div style={{
-            marginTop: "16px", padding: "12px 16px", borderRadius: "6px",
-            background: syncResult.type === "success" ? "#4caf5022" : "#ef535022",
-            border: `1px solid ${syncResult.type === "success" ? "#4caf5044" : "#ef535044"}`,
-            color: syncResult.type === "success" ? "var(--accent-green)" : "var(--accent-red)",
-          }}>
-            {syncResult.message}
+        <div className="platform-card disabled">
+          <div className="platform-info">
+            <div className="platform-icon xbox"></div>
+            <div>
+              <h3>Xbox Network</h3>
+              <p>{isUk ? "Доступно незабаром (Xbox Live LiveID)" : "Coming soon (Xbox Live LiveID)"}</p>
+            </div>
           </div>
-        )}
-      </div>
-
-      {/* Account */}
-      <div className="card" style={{ padding: "24px" }}>
-        <h3 style={{ color: "var(--text-bright)", marginBottom: "16px" }}>
-          👤 {isUk ? "Акаунт" : "Account"}
-        </h3>
-
-        {!showLogout ? (
-          <button
-            className="btn btn-outline"
-            style={{ borderColor: "var(--accent-red)", color: "var(--accent-red)" }}
-            onClick={() => setShowLogout(true)}>
-            🚪 {isUk ? "Вийти з акаунту" : "Sign Out"}
+          <button className="btn-platform" disabled>
+            {isUk ? "Підключити" : "Connect"}
           </button>
-        ) : (
-          <div style={{
-            background: "#ef535011", border: "1px solid #ef535044",
-            borderRadius: "8px", padding: "20px",
-          }}>
-            <div style={{ color: "var(--text-bright)", marginBottom: "8px", fontWeight: "600" }}>
-              {isUk ? "Ви впевнені?" : "Are you sure?"}
-            </div>
-            <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "16px" }}>
-              {isUk
-                ? "Всі дані буде видалено. Ви зможете підключити інший акаунт після виходу."
-                : "All data will be cleared. You can connect a different account after signing out."
-              }
-            </div>
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button className="btn btn-outline"
-                style={{ borderColor: "var(--accent-red)", color: "var(--accent-red)" }}
-                onClick={handleLogout}>
-                {isUk ? "Так, вийти" : "Yes, sign out"}
-              </button>
-              <button className="btn btn-outline" onClick={() => setShowLogout(false)}>
-                {isUk ? "Скасувати" : "Cancel"}
-              </button>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
-
     </div>
   );
 }

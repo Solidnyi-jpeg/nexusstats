@@ -1,36 +1,27 @@
+from pydantic import Field # Додай цей імпорт
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
+        env_file=".env", 
+        env_file_encoding="utf-8", 
+        extra="ignore"
     )
 
-    app_name: str = "NexusStats"
-    debug: bool = False
-    environment: str = "development"
+    api_url: str = "http://127.0.0.1:8000"
+    frontend_url: str = "http://127.0.0.1:5173"
+
+    firebase_credentials_path: str = "serviceAccountKey.json"
 
     database_url: str
-    steam_api_key: str
-    firebase_credentials_path: str = "./serviceAccountKey.json"
-    redis_url: str = "redis://localhost:6379/0"
-    secret_key: str = "change-me-in-production"
-
-    # CORS
-    allowed_origins: str = "*"
-
-    @property
-    def is_production(self) -> bool:
-        return self.environment == "production"
-
-    @property
-    def cors_origins(self) -> list[str]:
-        if self.allowed_origins == "*":
-            return ["*"]
-        return [o.strip() for o in self.allowed_origins.split(",")]
-
+    redis_url: str
+    # Додаємо Field(repr=False) для безпеки
+    steam_api_key: str = Field(..., repr=False)
+    
+    app_name: str = "NexusStats"
+    debug: bool = False
+    
+    # Секретний ключ з використанням Field
+    secret_key: str = Field("SUPER_SECRET_NEXUS_KEY_123!", repr=False)
 
 settings = Settings()

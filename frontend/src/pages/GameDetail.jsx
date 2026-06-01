@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import axios from "axios";
+import { useApp } from "../store"; // 🔌 Імпортуємо твій глобальний стор
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 function ScreenshotModal({ screenshots, startIndex, onClose }) {
   const [idx, setIdx] = useState(startIndex);
@@ -54,17 +56,6 @@ function ScreenshotModal({ screenshots, startIndex, onClose }) {
           {idx + 1} / {screenshots.length} · ESC {" "}
           <span style={{ cursor: "pointer", color: "#fff" }} onClick={onClose}>✕</span>
         </div>
-        <div style={{ display: "flex", gap: "6px", justifyContent: "center", marginTop: "10px", flexWrap: "wrap" }}>
-          {screenshots.map((s, i) => (
-            <div key={i} onClick={() => setIdx(i)} style={{
-              width: "50px", height: "32px", borderRadius: "3px", overflow: "hidden",
-              border: `2px solid ${i === idx ? "#66c0f4" : "transparent"}`,
-              cursor: "pointer", flexShrink: 0,
-            }}>
-              <img src={s} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -93,16 +84,6 @@ function ActivityCalendar({ playtimeHours }) {
     if (hours < 3)  return "#40a060";
     return "var(--accent-green)";
   };
-
-  const months = [];
-  data.forEach((d, i) => {
-    if (d.date.getDate() === 1 || i === 0) {
-      months.push({
-        label: d.date.toLocaleString("default", { month: "short" }),
-        index: i,
-      });
-    }
-  });
 
   return (
     <div style={{ position: "relative" }}>
@@ -165,29 +146,38 @@ function ActivityCalendar({ playtimeHours }) {
 export default function GameDetail() {
   const { platform, gameId } = useParams();
   const navigate = useNavigate();
-  const { t, i18n } = useTranslation();
-  const isUk = i18n.language === "uk";
+  const { t } = useTranslation();
+  
+  // Використовуємо реактивний стейт мови з твого спільного провайдера стору
+  const { language } = useApp();
+  const isUk = language === "uk";
+
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
   const [modal, setModal] = useState(null);
 
   useEffect(() => {
-    axios.get(`http://localhost:8000/games/${platform}/${gameId}`)
-      .then(res => setData(res.data))
+    const token = localStorage.getItem("token");
+    // Підключено динамічний префікс API_URL
+    fetch(`${API_URL}/api/v1/games/${platform}/${gameId}`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(resData => setData(resData))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [platform, gameId]);
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: "12px" }}>
-      <div style={{ color: "var(--accent)" }}>{t("common.loading")}</div>
+      <div style={{ color: "var(--accent)" }}>{t("common.loading") || (isUk ? "Завантаження..." : "Loading...")}</div>
     </div>
   );
 
   if (!data) return (
     <div style={{ textAlign: "center", padding: "60px", color: "var(--accent-red)" }}>
-      {t("common.error")}
+      {t("common.error") || (isUk ? "Помилка зв'язку з сервером" : "Server connection error")}
     </div>
   );
 
@@ -203,7 +193,6 @@ export default function GameDetail() {
 
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "28px 24px" }}>
-
       {modal !== null && (
         <ScreenshotModal
           screenshots={screenshots}
@@ -232,11 +221,6 @@ export default function GameDetail() {
               {store?.developers?.length > 0 && (
                 <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: "10px" }}>
                   {isUk ? "Розробник" : "Developer"}: {store.developers.join(", ")}
-                </div>
-              )}
-              {store?.release_date && (
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "10px" }}>
-                  {isUk ? "Дата виходу" : "Release date"}: {store.release_date}
                 </div>
               )}
               {store?.genres?.length > 0 && (
@@ -300,36 +284,27 @@ export default function GameDetail() {
         ))}
       </div>
 
-      {/* Overview */}
+      {/* Overview Tab (З додаванням інтегрованої галереї скріншотів) */}
       {activeTab === "overview" && (
-        <div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {store?.description && (
-            <div className="card" style={{ padding: "24px", marginBottom: "16px" }}>
-              <h3 style={{ color: "var(--text-bright)", marginBottom: "12px" }}>
+            <div className="card" style={{ padding: "24px" }}>
+              <h3 style={{ color: "var(--text-bright)", marginBottom: "12px", fontSize: "1rem" }}>
                 {isUk ? "Про гру" : "About"}
               </h3>
-              <p style={{ color: "var(--text-secondary)", lineHeight: 1.7 }}>{store.description}</p>
+              <p style={{ color: "var(--text-secondary)", lineHeight: 1.7, margin: 0 }}>{store.description}</p>
             </div>
           )}
 
           {screenshots.length > 0 && (
             <div className="card" style={{ padding: "24px" }}>
-              <h3 style={{ color: "var(--text-bright)", marginBottom: "16px" }}>
-                {isUk ? "Скріншоти" : "Screenshots"}
-                <span style={{ color: "var(--text-secondary)", fontSize: "0.8rem", marginLeft: "8px" }}>
-                  ({isUk ? "натисни для перегляду" : "click to view"})
-                </span>
+              <h3 style={{ color: "var(--text-bright)", marginBottom: "16px", fontSize: "1rem" }}>
+                🖼️ {isUk ? "Медіа-галерея" : "Screenshots Gallery"}
               </h3>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
-                {screenshots.map((s, i) => (
-                  <div key={i} onClick={() => setModal(i)} style={{
-                    borderRadius: "6px", overflow: "hidden", cursor: "pointer",
-                    transition: "transform 0.15s, opacity 0.15s", aspectRatio: "16/9",
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.02)"; e.currentTarget.style.opacity = "0.85"; }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.opacity = "1"; }}
-                  >
-                    <img src={s} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "10px" }}>
+                {screenshots.map((src, i) => (
+                  <div key={i} onClick={() => setModal(i)} style={{ borderRadius: "6px", overflow: "hidden", cursor: "pointer", border: "1px solid var(--border)", aspectRatio: "16/9" }}>
+                    <img src={src} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" />
                   </div>
                 ))}
               </div>
@@ -338,36 +313,46 @@ export default function GameDetail() {
         </div>
       )}
 
-      {/* Achievements */}
+      {/* Achievements Tab (Рендеринг реальних авуару іконок з бекенду) */}
       {activeTab === "achievements" && (
         <div className="card" style={{ padding: "24px" }}>
           {achievements.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px", color: "var(--text-secondary)" }}>
-              {isUk ? "Немає даних про досягнення" : "No achievements data"}
+              {isUk ? "Немає даних про досягнення для цієї гри" : "No achievements data available"}
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {achievements.map(a => (
                 <div key={a.api_name} style={{
-                  display: "flex", alignItems: "center", gap: "12px",
-                  padding: "12px", borderRadius: "6px",
+                  display: "flex", alignItems: "center", gap: "14px",
+                  padding: "12px", borderRadius: "8px",
                   background: a.achieved ? "var(--bg-hover)" : "transparent",
-                  opacity: a.achieved ? 1 : 0.5,
+                  opacity: a.achieved ? 1 : 0.45,
+                  border: "1px solid var(--border)"
                 }}>
-                  <div style={{ fontSize: "1.5rem" }}>{a.achieved ? "🏆" : "🔒"}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ color: a.achieved ? "var(--text-bright)" : "var(--text-secondary)", fontWeight: "600" }}>
+                  {/* Живий вивід іконки ачівки */}
+                  <div style={{ width: "44px", height: "44px", borderRadius: "6px", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--border)", flexShrink: 0 }}>
+                    {a.icon_url ? (
+                      <img src={a.icon_url} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" />
+                    ) : (
+                      <div style={{ fontSize: "1.2rem" }}>{a.achieved ? "🏆" : "🔒"}</div>
+                    )}
+                  </div>
+                  
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: a.achieved ? "var(--text-bright)" : "var(--text-secondary)", fontWeight: "600", fontSize: "0.95rem" }}>
                       {a.display_name}
                     </div>
                     {a.description && (
-                      <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>{a.description}</div>
+                      <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {a.description}
+                      </div>
                     )}
                   </div>
-                  {a.achieved && a.unlock_time && (
-                    <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", flexShrink: 0 }}>
-                      {new Date(a.unlock_time * 1000).toLocaleDateString()}
-                    </div>
-                  )}
+                  
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                    {a.achieved ? (isUk ? "✅ Отримано" : "✅ Unlocked") : (isUk ? "🔒 Закрито" : "🔒 Locked")}
+                  </div>
                 </div>
               ))}
             </div>
@@ -375,28 +360,27 @@ export default function GameDetail() {
         </div>
       )}
 
-      {/* News */}
+      {/* News Tab (Нова офіційна стрічка оновлень гри від Steam) */}
       {activeTab === "news" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {news.length === 0 ? (
+          {!news || news.length === 0 ? (
             <div className="card" style={{ padding: "40px", textAlign: "center", color: "var(--text-secondary)" }}>
-              {isUk ? "Новини недоступні" : "No news available"}
+              {isUk ? "Офіційних новин про гру наразі немає" : "No news updates found for this game"}
             </div>
-          ) : news.map((n, i) => (
-            <a key={i} href={n.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-              <div className="card" style={{ padding: "20px", transition: "border-color 0.15s" }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent)"}
-                onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}>
-                <div style={{ color: "var(--text-bright)", fontWeight: "600", marginBottom: "8px" }}>{n.title}</div>
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "8px" }}>{n.contents}...</div>
-                <div style={{ color: "var(--accent)", fontSize: "0.75rem" }}>
-                  {new Date(n.date * 1000).toLocaleDateString(isUk ? "uk-UA" : "en-US")} →
-                </div>
+          ) : (
+            news.map((n, idx) => (
+              <div key={idx} className="card" style={{ padding: "20px" }}>
+                <h4 style={{ color: "var(--text-bright)", margin: "0 0 8px 0", fontSize: "1.05rem" }}>{n.title}</h4>
+                <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", lineHeight: "1.6", margin: "0 0 12px 0" }}>{n.contents}</p>
+                <a href={n.url} target="_blank" rel="noreferrer" className="link" style={{ color: "var(--accent)", fontSize: "0.85rem", textDecoration: "none", fontWeight: "600" }}>
+                  {isUk ? "Читати далі у Steam ↗" : "Read full article ↗"}
+                </a>
               </div>
-            </a>
-          ))}
+            ))
+          )}
         </div>
       )}
+
     </div>
   );
 }

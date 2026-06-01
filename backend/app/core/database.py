@@ -12,7 +12,9 @@ engine = create_async_engine(
     max_overflow=20,
 )
 
-AsyncSessionLocal = async_sessionmaker(
+# Змінили назву з AsyncSessionLocal на async_session, 
+# щоб вона збігалася з імпортом у dependencies.py
+async_session = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,

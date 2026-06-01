@@ -1,172 +1,117 @@
-import { useState } from "react";
-import { useTranslation } from "react-i18next";
-import axios from "axios";
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { initializeApp } from "firebase/app";
+import { getAuth, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { useApp } from "../store"; // 🔌 Підключаємо твій глобальний стейт провайдер
 
-const STEPS = ["welcome", "connect", "sync", "done"];
+// Конфігурація Firebase з твого консолі
+const firebaseConfig = {
+  apiKey: "AIzaSyCzCfmUJ85-qgkn3aSsmBOSDFjagneUZZc",
+  authDomain: "game-analytics-abe36.firebaseapp.com",
+  projectId: "game-analytics-abe36",
+  storageBucket: "game-analytics-abe36.firebasestorage.app",
+  messagingSenderId: "510933334605",
+  appId: "1:510933334605:web:544b10649f40f21316fa04",
+  measurementId: "G-Q33WMDX02L"
+};
 
-export default function Welcome({ onComplete }) {
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+export default function Welcome() {
   const { t } = useTranslation();
-  const [step, setStep] = useState(0);
-  const [steamId, setSteamId] = useState("");
+  const navigate = useNavigate();
+  
+  // Дістаємо глобальний контекст. Якщо у твоєму сторі прописана функція логіну/оновлення — підв'язуємо її
+  const { language } = useApp();
+  const isUk = language === "uk";
+
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
-  const handleConnect = async () => {
-    if (!steamId.trim()) return;
+  const handleGoogleSignIn = async () => {
+    setError('');
     setLoading(true);
-    setError("");
+
     try {
-      await axios.post(`http://localhost:8000/debug/setup?steam_id=${steamId.trim()}`);
-      setStep(2);
-    } catch {
-      setError(t("welcome.errorConnect"));
+      // Крок 1: Відкриваємо вікно входу Google
+      const result = await signInWithPopup(auth, googleProvider);
+      
+      // Крок 2: Отримуємо токен та базове ім'я користувача для інтерфейсу
+      const idToken = await result.user.getIdToken();
+      const displayName = result.user.displayName || "User";
+
+      // Крок 3: Відправляємо токен на наш FastAPI бекенд через версійний префікс
+      const response = await fetch(`${API_URL}/api/v1/auth/firebase`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_token: idToken }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || (isUk ? 'Бекенд відхилив авторизацію Firebase.' : 'Backend rejected Firebase authorization.'));
+      }
+
+      // Крок 4: Записуємо сесію та ПРАВИЛЬНЕ ім'я в пам'ять браузера
+      if (data.access_token) {
+        localStorage.setItem('token', data.access_token);
+        localStorage.setItem('username', displayName);
+        
+        // Переходимо на Дашборд без перезавантаження сторінки
+        navigate('/');
+      }
+
+    } catch (err) {
+      console.error("Помилка авторизації Google/Firebase:", err);
+      setError(err.message || (isUk ? 'Сталася помилка під час входу через Google.' : 'An error occurred during Google Sign-In.'));
     } finally {
       setLoading(false);
     }
   };
-
-  const handleSync = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      await axios.post("http://localhost:8000/debug/sync");
-      setStep(3);
-    } catch {
-      setError(t("welcome.errorSync"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const features = [
-    { icon: "🎮", title: t("welcome.feature1Title"), desc: t("welcome.feature1Desc") },
-    { icon: "📊", title: t("welcome.feature2Title"), desc: t("welcome.feature2Desc") },
-    { icon: "🏆", title: t("welcome.feature3Title"), desc: t("welcome.feature3Desc") },
-    { icon: "👥", title: t("welcome.feature4Title"), desc: t("welcome.feature4Desc") },
-  ];
 
   return (
-    <div style={{
-      minHeight: "100vh", background: "var(--bg-primary)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: "24px",
-    }}>
-      <div style={{ maxWidth: "620px", width: "100%" }}>
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <h2 style={styles.title}>NexusStats</h2>
+        <p style={styles.subtitle}>
+          {isUk ? "Мультиплатформна ігрова аналітика в один клік." : "Multiplatform gaming analytics in a single click."}
+        </p>
 
-        {step === 0 && (
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🎮</div>
-            <h1 style={{ color: "var(--accent)", fontSize: "2.5rem", fontWeight: "bold", letterSpacing: "0.1em", marginBottom: "8px" }}>
-              NEXUSSTATS
-            </h1>
-            <p style={{ color: "var(--text-secondary)", fontSize: "1.1rem", marginBottom: "40px" }}>
-              {t("welcome.subtitle")}
-            </p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "40px" }}>
-              {features.map(f => (
-                <div key={f.title} className="card" style={{ padding: "20px", textAlign: "left" }}>
-                  <div style={{ fontSize: "1.8rem", marginBottom: "8px" }}>{f.icon}</div>
-                  <div style={{ color: "var(--text-bright)", fontWeight: "600", marginBottom: "4px" }}>{f.title}</div>
-                  <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>{f.desc}</div>
-                </div>
-              ))}
-            </div>
-            <button className="btn btn-primary" style={{ fontSize: "1.1rem", padding: "14px 48px" }}
-              onClick={() => setStep(1)}>
-              {t("welcome.getStarted")}
-            </button>
-            <div style={{ marginTop: "16px" }}>
-              <button style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: "0.9rem" }}
-                onClick={onComplete}>
-                {t("welcome.skip")}
-              </button>
-            </div>
-          </div>
-        )}
+        {error && <div style={styles.error}>{error}</div>}
 
-        {step === 1 && (
-          <div>
-            <button onClick={() => setStep(0)} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", marginBottom: "24px", fontSize: "0.9rem" }}>
-              {t("welcome.back")}
-            </button>
-            <div className="card" style={{ padding: "40px" }}>
-              <div style={{ textAlign: "center", marginBottom: "32px" }}>
-                <div style={{ fontSize: "3rem", marginBottom: "12px" }}>🎮</div>
-                <h2 style={{ color: "var(--text-bright)", fontSize: "1.5rem" }}>{t("welcome.connectSteam")}</h2>
-                <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>{t("welcome.connectDesc")}</p>
-              </div>
-              <div style={{ background: "var(--bg-hover)", borderRadius: "8px", padding: "16px", marginBottom: "24px" }}>
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "8px" }}>
-                  {t("welcome.howToFind")}:
-                </div>
-                <div style={{ color: "var(--text-primary)", fontSize: "0.85rem" }}>
-                  1. {t("welcome.howToFind1")} — <a href="https://steamid.io" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>steamid.io</a><br/>
-                  2. {t("welcome.howToFind2")}<br/>
-                  3. {t("welcome.howToFind3")}
-                </div>
-              </div>
-              <input value={steamId} onChange={e => setSteamId(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleConnect()}
-                placeholder={t("welcome.steamIdPlaceholder")}
-                style={{
-                  width: "100%", padding: "12px 16px", marginBottom: "12px",
-                  background: "var(--bg-primary)", border: "1px solid var(--border)",
-                  borderRadius: "var(--radius)", color: "var(--text-primary)",
-                  fontSize: "1rem", outline: "none", boxSizing: "border-box",
-                }} />
-              {error && <div style={{ color: "var(--accent-red)", fontSize: "0.85rem", marginBottom: "12px" }}>⚠️ {error}</div>}
-              <button className="btn btn-primary" style={{ width: "100%", padding: "12px" }}
-                onClick={handleConnect} disabled={loading || !steamId.trim()}>
-                {loading ? t("welcome.connecting") : t("welcome.connectBtn")}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="card" style={{ padding: "40px", textAlign: "center" }}>
-            <div style={{ fontSize: "3rem", marginBottom: "16px" }}>✅</div>
-            <h2 style={{ color: "var(--text-bright)", marginBottom: "8px" }}>{t("welcome.steamConnected")}</h2>
-            <p style={{ color: "var(--text-secondary)", marginBottom: "32px" }}>{t("welcome.importDesc")}</p>
-            <div style={{ background: "var(--bg-hover)", borderRadius: "8px", padding: "16px", marginBottom: "24px", textAlign: "left" }}>
-              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "8px" }}>{t("welcome.willImport")}:</div>
-              <div style={{ color: "var(--text-primary)", fontSize: "0.9rem" }}>
-                🎮 {t("welcome.willImport1")}<br/>
-                🏆 {t("welcome.willImport2")}<br/>
-                ⏱️ {t("welcome.willImport3")}
-              </div>
-            </div>
-            {error && <div style={{ color: "var(--accent-red)", marginBottom: "12px" }}>⚠️ {error}</div>}
-            <button className="btn btn-primary" style={{ width: "100%", padding: "12px" }}
-              onClick={handleSync} disabled={loading}>
-              {loading ? t("welcome.importing") : t("welcome.importBtn")}
-            </button>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="card" style={{ padding: "40px", textAlign: "center" }}>
-            <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🎉</div>
-            <h2 style={{ color: "var(--text-bright)", fontSize: "1.5rem", marginBottom: "8px" }}>{t("welcome.doneTitle")}</h2>
-            <p style={{ color: "var(--text-secondary)", marginBottom: "32px" }}>{t("welcome.doneDesc")}</p>
-            <button className="btn btn-primary" style={{ fontSize: "1.1rem", padding: "14px 48px" }}
-              onClick={onComplete}>
-              {t("welcome.openDashboard")}
-            </button>
-          </div>
-        )}
-
-        <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginTop: "32px" }}>
-          {STEPS.map((_, i) => (
-            <div key={i} style={{
-              width: i === step ? "24px" : "8px", height: "8px",
-              borderRadius: "4px",
-              background: i <= step ? "var(--accent)" : "var(--border)",
-              transition: "all 0.3s",
-            }} />
-          ))}
+        <div style={styles.buttonContainer}>
+          <button 
+            onClick={handleGoogleSignIn} 
+            disabled={loading} 
+            style={styles.googleBtn}
+          >
+            <span style={styles.icon}>🌐</span>
+            {loading ? (isUk ? 'Авторизація...' : 'Authorizing...') : (isUk ? 'Увійти через Google' : 'Sign in with Google')}
+          </button>
         </div>
+        
+        <p style={styles.footer}>
+          {isUk ? "Без введення паролів, безпечно через Firebase Auth" : "No passwords required, secured by Firebase Auth"}
+        </p>
       </div>
     </div>
   );
 }
+
+const styles = {
+  container: { display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: 'var(--bg-main)', fontFamily: 'system-ui, sans-serif', color: 'var(--text-primary)' },
+  card: { backgroundColor: 'var(--bg-card)', padding: '3rem 2.5rem', borderRadius: '16px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)', width: '100%', maxWidth: '420px', textAlign: 'center', border: '1px solid var(--border)' },
+  title: { fontSize: '2.5rem', margin: '0 0 0.5rem 0', color: 'var(--accent)', fontWeight: '800', letterSpacing: '-0.05em' },
+  subtitle: { color: 'var(--text-secondary)', margin: '0 0 2.5rem 0', fontSize: '1rem', lineHeight: '1.5' },
+  buttonContainer: { display: 'flex', flexDirection: 'column', gap: '1rem' },
+  googleBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', width: '100%', padding: '14px', borderRadius: '10px', border: 'none', backgroundColor: '#ffffff', color: '#0f172a', fontSize: '1.1rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s ease', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.2)' },
+  icon: { fontSize: '1.3rem' },
+  error: { backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#f87171', padding: '0.75rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.9rem' },
+  footer: { marginTop: '2rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }
+};

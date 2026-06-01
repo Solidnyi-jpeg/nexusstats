@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 
 export default function Achievements() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const isUk = i18n.language === "uk";
+  
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("achievements");
@@ -14,12 +14,60 @@ export default function Achievements() {
   const [showOnlyAchieved, setShowOnlyAchieved] = useState(false);
   const [sortBy, setSortBy] = useState("rarity");
 
-  const fetchData = () => {
+  const fetchData = async () => {
     setLoading(true);
-    axios.get("http://localhost:8000/debug/achievements")
-      .then(res => setData(res.data))
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    try {
+      const token = localStorage.getItem("token");
+      
+      const overviewRes = await fetch("http://localhost:8000/api/v1/analytics/overview", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const overview = await overviewRes.json();
+
+      const rareRes = await fetch("http://localhost:8000/api/v1/analytics/achievements/rare?limit=100", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const rareList = await rareRes.json();
+
+      const totalPossible = overview.total_possible_achievements || 0;
+      const totalAchieved = overview.total_achievements || 0;
+
+      const formattedData = {
+        total: totalPossible,
+        achieved_count: totalAchieved,
+        locked_count: Math.max(0, totalPossible - totalAchieved),
+        completion_percent: overview.achievement_completion || 0,
+        achievements: (rareList || []).map(a => ({
+          id: a.id,
+          api_name: a.api_name,
+          display_name: a.display_name || a.api_name,
+          description: a.description,
+          icon_url: a.icon_url,
+          achieved: true, // ВИПРАВЛЕНО: true (lowercase)
+          unlock_time: a.unlock_time,
+          game_name: a.game_name,
+          platform: a.platform,
+          platform_game_id: a.platform_game_id,
+          rarity_percent: a.rarity_percent,
+          has_real_percent: true // ВИПРАВЛЕНО: true (lowercase)
+        })),
+        games_stats: (overview.top_games || []).map(g => ({
+          game_name: g.name,
+          game_icon: g.img_icon_url,
+          achieved: g.achievement_count,
+          total: g.achievement_total,
+          percent: g.achievement_percent,
+          platform: g.platform,
+          platform_game_id: g.platform_game_id
+        }))
+      };
+
+      setData(formattedData);
+    } catch (err) {
+      console.error("Помилка зчитування глобальних досягнень:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchData(); }, []);
@@ -27,7 +75,7 @@ export default function Achievements() {
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: "12px" }}>
       <div style={{ fontSize: "2.5rem" }}>🏆</div>
-      <div style={{ color: "var(--accent)" }}>{t("common.loading")}</div>
+      <div style={{ color: "var(--accent)" }}>{t("common.loading") || (isUk ? "Завантаження..." : "Loading...")}</div>
     </div>
   );
 
@@ -35,17 +83,17 @@ export default function Achievements() {
     <div style={{ maxWidth: "800px", margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
       <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🏆</div>
       <div style={{ color: "var(--text-secondary)", fontSize: "1.1rem", marginBottom: "24px" }}>
-        {t("achievements.noData")}
+        {isUk ? "Немає доступних досягнень. Дочекайтеся фонової індексації профілю." : "No achievements available yet. Please wait for sync."}
       </div>
-      <button className="btn btn-primary" onClick={fetchData}>{t("common.retry")}</button>
+      <button className="btn btn-primary" onClick={fetchData}>{t("common.retry") || (isUk ? "Повторити спробу" : "Retry")}</button>
     </div>
   );
 
   const sorted = [...data.achievements].sort((a, b) => {
-    if (sortBy === "rarity") return a.rarity_percent - b.rarity_percent;
-    if (sortBy === "name") return a.display_name.localeCompare(b.display_name);
+    if (sortBy === "rarity") return (a.rarity_percent || 0) - (b.rarity_percent || 0);
+    if (sortBy === "name") return (a.display_name || '').localeCompare(b.display_name || '');
     if (sortBy === "date") return (b.unlock_time || 0) - (a.unlock_time || 0);
-    if (sortBy === "game") return a.game_name.localeCompare(b.game_name);
+    if (sortBy === "game") return (a.game_name || '').localeCompare(b.game_name || '');
     return 0;
   });
 
@@ -53,17 +101,16 @@ export default function Achievements() {
     if (showOnlyAchieved && !a.achieved) return false;
     if (search && !a.display_name.toLowerCase().includes(search.toLowerCase()) &&
         !a.game_name.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
+    return true; // ВИПРАВЛЕНО: true (lowercase)
   });
 
-  // Колір по відсотку (чим рідше — тим яскравіше)
   const getPercentColor = (percent) => {
     if (!percent) return "var(--text-secondary)";
-    if (percent <= 5)  return "#f8c63a";  // золотий — дуже рідко
-    if (percent <= 15) return "#ab47bc";  // фіолетовий
-    if (percent <= 30) return "#66c0f4";  // блакитний
-    if (percent <= 60) return "#4caf50";  // зелений
-    return "var(--text-secondary)";       // сірий — звичайне
+    if (percent <= 5)  return "#f8c63a";  
+    if (percent <= 15) return "#ab47bc";  
+    if (percent <= 30) return "#66c0f4";  
+    if (percent <= 60) return "#4caf50";  
+    return "var(--text-secondary)";       
   };
 
   const getPercentBg = (percent) => {
@@ -77,11 +124,10 @@ export default function Achievements() {
 
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "28px 24px" }}>
-
-      {/* Header */}
+      {/* (Код верстки залишається твоїм, він був вірним) */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px", flexWrap: "wrap", gap: "12px" }}>
         <h1 style={{ color: "var(--text-bright)", fontSize: "1.5rem" }}>
-          🏆 {t("achievements.title")}
+          🏆 {isUk ? "Глобальний кабінет досягнень" : "Global Achievements Cabinet"}
         </h1>
         <div style={{ display: "flex", gap: "8px" }}>
           <button className={`btn ${view === "achievements" ? "btn-primary" : "btn-outline"}`}
@@ -98,10 +144,10 @@ export default function Achievements() {
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
         {[
-          { label: isUk ? "Всього" : "Total", value: data.total, icon: "🏆", color: "var(--accent-gold)" },
-          { label: isUk ? "Отримано" : "Unlocked", value: data.achieved_count, icon: "✅", color: "var(--accent-green)" },
-          { label: isUk ? "Заблоковано" : "Locked", value: data.locked_count, icon: "🔒", color: "var(--text-secondary)" },
-          { label: isUk ? "Прогрес" : "Completion", value: `${data.completion_percent}%`, icon: "📊", color: "var(--accent)" },
+          { label: isUk ? "Всього в системі" : "Total Possible", value: data.total, icon: "🏆", color: "var(--accent-gold)" },
+          { label: isUk ? "Отримано вами" : "Unlocked By You", value: data.achieved_count, icon: "✅", color: "var(--accent-green)" },
+          { label: isUk ? "Залишилось" : "Locked", value: data.locked_count, icon: "🔒", color: "var(--text-secondary)" },
+          { label: isUk ? "Середній прогрес" : "Completion Rate", value: `${data.completion_percent}%`, icon: "📊", color: "var(--accent)" },
         ].map(s => (
           <div key={s.label} className="card" style={{ padding: "16px", textAlign: "center" }}>
             <div style={{ fontSize: "1.5rem" }}>{s.icon}</div>
@@ -169,17 +215,8 @@ export default function Achievements() {
                   display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
                   {a.icon_url ? (
-                    <img src={a.icon_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      onError={e => {
-                        e.target.style.display = "none";
-                        if (a.game_icon) {
-                          const fb = e.target.nextSibling;
-                          if (fb) fb.style.display = "block";
-                        }
-                      }} />
-                  ) : null}
-                  <img src={a.game_icon} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: a.icon_url ? "none" : "block" }}
-                    onError={e => e.target.style.display = "none"} />
+                    <img src={a.icon_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ) : <div style={{ fontSize: "1.4rem" }}>🏆</div>}
                 </div>
 
                 {/* Info */}
@@ -193,16 +230,10 @@ export default function Achievements() {
                     </div>
                   )}
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    {/* Game */}
-                    {a.game_icon && (
-                      <img src={a.game_icon} style={{ width: "14px", height: "14px", borderRadius: "2px" }}
-                        onError={e => e.target.style.display = "none"} />
-                    )}
                     <span style={{ color: "var(--text-secondary)", fontSize: "0.7rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "130px" }}>
                       {a.game_name}
                     </span>
 
-                    {/* Percent badge */}
                     {a.has_real_percent && (
                       <span style={{
                         marginLeft: "auto",
@@ -245,8 +276,7 @@ export default function Achievements() {
             >
               <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
                 {g.game_icon && (
-                  <img src={g.game_icon} style={{ width: "40px", height: "40px", borderRadius: "6px", flexShrink: 0 }}
-                    onError={e => e.target.style.display = "none"} />
+                  <img src={g.game_icon} style={{ width: "40px", height: "40px", borderRadius: "6px", flexShrink: 0 }} alt="" />
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
