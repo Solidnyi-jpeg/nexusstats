@@ -1,4 +1,5 @@
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, DateTime, Index
+from datetime import datetime
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, DateTime, Index, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
@@ -17,6 +18,10 @@ class PlatformConnection(Base, TimestampMixin):
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True) # ДОДАНО ЦЕ ПОЛЕ
 
     __table_args__ = (
         UniqueConstraint("user_id", "platform", "platform_user_id", name="uq_platform_connection"),
@@ -42,7 +47,8 @@ class Game(Base, TimestampMixin):
     genre: Mapped[str | None] = mapped_column(String(128), nullable=True)
     developer: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
-    ___table_args__ = (
+    # Виправлено: два підкреслення замість трьох, щоб працював UniqueConstraint
+    __table_args__ = (
         UniqueConstraint("platform", "platform_game_id", name="uq_game_platform"),
     )
 
@@ -58,7 +64,8 @@ class PlayerGame(Base, TimestampMixin):
     game_id: Mapped[int] = mapped_column(ForeignKey("games.id", ondelete="CASCADE"))
     playtime_minutes: Mapped[int] = mapped_column(Integer, default=0)
     playtime_2weeks_minutes: Mapped[int] = mapped_column(Integer, default=0)
-    last_played_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Виправлено: єдине правильне поле last_played_at з підтримкою таймзон
+    last_played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     achievement_count: Mapped[int] = mapped_column(Integer, default=0)
     achievement_total: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -67,7 +74,6 @@ class PlayerGame(Base, TimestampMixin):
     achievements: Mapped[list["PlayerAchievement"]] = relationship(
         back_populates="player_game", cascade="all, delete-orphan"
     )
-    last_played_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Achievement(Base, TimestampMixin):
@@ -81,6 +87,10 @@ class Achievement(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     icon_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # ДОДАНО: Для відображення в UI
+    icon_gray_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    rarity_percent: Mapped[float] = mapped_column(Float, default=0.0)
 
     __table_args__ = (
         UniqueConstraint("game_id", "api_name", name="uq_achievement"),

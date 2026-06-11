@@ -1,34 +1,39 @@
-from sqlalchemy import Column, Integer, String, Boolean
-from sqlalchemy.orm import relationship
-from app.models.base import Base
+from sqlalchemy import BigInteger, Boolean, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.models.base import Base, TimestampMixin
 
-class User(Base):
+class User(Base, TimestampMixin):
+    """Модель користувача системи."""
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    firebase_uid = Column(String, unique=True, index=True, nullable=False)
-    email = Column(String, unique=True, index=True, nullable=False)
-    username = Column(String, unique=True, index=True, nullable=False)
+    # Використовуємо BigInteger для консистентності з іншими таблицями
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     
-    # Додали default, щоб уникнути помилок при реєстрації через Firebase
-    hashed_password = Column(String, nullable=False, default="firebase_auth")
+    # Ім'я користувача (обов'язкове, можна брати зі Steam)
+    username: Mapped[str] = mapped_column(String(256), unique=True, index=True, nullable=False)
     
-    preferred_language = Column(String, nullable=False, default="en")
-    preferred_theme = Column(String, nullable=False, default="dark")
+    # Робимо email та пароль опціональними, оскільки Steam OpenID їх не надає
+    email: Mapped[str | None] = mapped_column(String(256), unique=True, index=True, nullable=True)
+    hashed_password: Mapped[str | None] = mapped_column(String(512), nullable=True)
     
-    is_active = Column(Boolean, default=True)
+    # Налаштування профілю
+    preferred_language: Mapped[str] = mapped_column(String(16), default="en")
+    preferred_theme: Mapped[str] = mapped_column(String(16), default="dark")
+    
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Зв'язки
-    platform_connections = relationship(
+    # Вказуємо назви класів у лапках ("PlatformConnection"), щоб уникнути помилок циклічного імпорту
+    platform_connections: Mapped[list["PlatformConnection"]] = relationship(
         "PlatformConnection", 
         back_populates="user", 
         cascade="all, delete-orphan"
     )
-    bookmarks = relationship(
+    bookmarks: Mapped[list["Bookmark"]] = relationship(
         "Bookmark", 
         back_populates="user", 
         cascade="all, delete-orphan"
     )
 
-    def __repr__(self):
-        return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
+    def __repr__(self) -> str:
+        return f"<User(id={self.id}, username='{self.username}')>"

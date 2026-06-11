@@ -1,118 +1,132 @@
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { searchPlayer } from "../api";
 import { useApp } from "../store";
 
+const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-// Статуси Steam: 0-Offline, 1-Online, 2-Busy, 3-Away, 4-Snooze, 5-Trade, 6-Play
-const STATUS_MAP = {
-  0: { label: { uk: "Офлайн", en: "Offline" }, color: "var(--border)" },
-  1: { label: { uk: "Онлайн", en: "Online" }, color: "var(--accent-green)" },
-  2: { label: { uk: "Зайнятий", en: "Busy" }, color: "#66c0f4" },
-  3: { label: { uk: "Відійшов", en: "Away" }, color: "#f8c63a" },
-  4: { label: { uk: "Не турбувати", en: "Snooze" }, color: "#ab47bc" },
-  5: { label: { uk: "Торгівля", en: "Trade" }, color: "#76d6ff" },
-  6: { label: { uk: "Грає", en: "Playing" }, color: "var(--accent-green)" },
-};
-
-const PlayerResultCard = ({ result, isUk, navigate, t }) => {
-  const status = STATUS_MAP[result.personastate] || STATUS_MAP[0];
-  const label = isUk ? status.label.uk : status.label.en;
-  const steamId = result.steam_id || result.steamid;
-
-  return (
-    <div className="card result-card">
-      <div className="player-info">
-        <div className="avatar-wrapper">
-          {result.avatarmedium && <img src={result.avatarmedium} alt={result.personaname} />}
-          <div className="status-indicator" style={{ background: status.color }} />
-        </div>
-        <div className="details">
-          <h3 className="player-name">{result.personaname}</h3>
-          <p className="steam-id">Steam ID: {steamId}</p>
-          <div className="status-text" style={{ color: status.color }}>
-            <span className="dot" style={{ background: status.color }} />
-            {label}
-          </div>
-        </div>
-      </div>
-      <div className="actions">
-        <button className="btn btn-primary" onClick={() => navigate(`/profile/${steamId}`)}>
-          {t("search.viewProfile", { defaultValue: isUk ? "Переглянути профіль" : "View Profile" })}
-        </button>
-        {result.profileurl && (
-          <a href={result.profileurl} target="_blank" rel="noreferrer" className="btn btn-outline">
-            Steam ↗
-          </a>
-        )}
-      </div>
-    </div>
-  );
-};
+const STATE_COLORS = ["var(--border)","#4caf50","#66c0f4","#f8c63a","#f8c63a","#ab47bc","#4caf50"];
+const STATE_UK     = ["Офлайн","Онлайн","Зайнятий","Відійшов","Відійшов","Не турбувати","Грає"];
+const STATE_EN     = ["Offline","Online","Busy","Away","Away","Snooze","In-Game"];
 
 export default function Search() {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const { language } = useApp();
-  const isUk = language === "uk";
+  const uk = language === "uk";
 
-  const [query, setQuery] = useState("");
-  const [result, setResult] = useState(null);
+  const [query,   setQuery]   = useState("");
+  const [result,  setResult]  = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error,   setError]   = useState("");
 
-  const handleSearch = async () => {
-    if (!query.trim()) return;
-    setLoading(true);
-    setResult(null);
-    setError("");
+  const doSearch = async () => {
+    const q = query.trim();
+    if (!q) return;
+    setLoading(true); setResult(null); setError("");
     try {
-      const res = await searchPlayer(query.trim());
-      if (!res.data?.found) {
-        setError(res.data?.error || t("search.notFound", { defaultValue: isUk ? "Гравця не знайдено" : "Player not found" }));
+      const res  = await fetch(
+        `${API}/api/v1/platforms/steam/search?query=${encodeURIComponent(q)}`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
+      );
+      const data = await res.json();
+      if (!res.ok || !data.found) {
+        setError(data.error || (uk ? "Гравця не знайдено" : "Player not found"));
       } else {
-        setResult(res.data);
+        setResult(data);
       }
     } catch {
-      setError(t("search.notFound", { defaultValue: isUk ? "Гравця не знайдено" : "Player not found" }));
+      setError(uk ? "Помилка з'єднання з сервером" : "Server connection error");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="search-container">
-      <h1 className="search-title">🔍 {t("search.title", { defaultValue: isUk ? "Пошук гравців" : "Search Players" })}</h1>
+    <div style={{ maxWidth:600, margin:"40px auto", padding:"0 24px" }}>
+      <h1 style={{ color:"var(--text-bright)", fontSize:"1.5rem", marginBottom:24 }}>
+        🔍 {uk ? "Пошук гравців" : "Search Players"}
+      </h1>
 
-      <div className="search-input-group">
+      <div style={{ display:"flex", gap:8, marginBottom:8 }}>
         <input
           value={query}
           onChange={e => { setQuery(e.target.value); setError(""); }}
-          onKeyDown={e => e.key === "Enter" && handleSearch()}
-          placeholder={t("search.placeholder", { defaultValue: isUk ? "Введіть нік або Steam ID..." : "Enter nickname or Steam ID..." })}
-          className={`search-input ${error ? "error" : ""}`}
+          onKeyDown={e => e.key === "Enter" && doSearch()}
+          placeholder={uk ? "Нік або Steam ID64..." : "Nickname or Steam ID64..."}
+          style={{
+            flex:1, padding:"10px 14px",
+            background:"var(--bg-card)", border:`1px solid ${error ? "var(--accent-red)" : "var(--border)"}`,
+            borderRadius:"var(--radius)", color:"var(--text-primary)", fontSize:".95rem", outline:"none",
+          }}
         />
-        <button className="btn btn-primary" onClick={handleSearch} disabled={loading || !query.trim()} aria-label="Search">
+        <button
+          className="btn btn-primary"
+          onClick={doSearch}
+          disabled={loading || !query.trim()}
+          style={{ padding:"10px 20px", fontSize:"1rem" }}
+        >
           {loading ? "⏳" : "🔍"}
         </button>
       </div>
 
-      <div className="search-hint">
-        {isUk ? "Введіть нікнейм Steam (vanity URL) або Steam ID64" : "Enter Steam nickname (vanity URL) or Steam ID64"}
+      <div style={{ color:"var(--text-secondary)", fontSize:".78rem", marginBottom:20 }}>
+        {uk ? "Введіть Steam ID64 (17 цифр) або vanity URL нікнейм" : "Enter Steam ID64 (17 digits) or vanity URL nickname"}
       </div>
 
       {error && (
-        <div className="card error-card">
-          <div className="error-icon">😕</div>
-          <div className="error-message">{error}</div>
+        <div className="card" style={{ padding:"20px 24px", borderColor:"var(--accent-red)44", display:"flex", gap:12, alignItems:"center" }}>
+          <span style={{ fontSize:"1.5rem" }}>😕</span>
+          <span style={{ color:"var(--text-secondary)" }}>{error}</span>
         </div>
       )}
 
-      {result && <PlayerResultCard result={result} isUk={isUk} navigate={navigate} t={t} />}
+      {result && (
+        <div className="card" style={{ padding:20 }}>
+          <div style={{ display:"flex", gap:16, alignItems:"center" }}>
+            <div style={{ position:"relative", flexShrink:0 }}>
+              {result.avatarmedium
+                ? <img src={result.avatarmedium} style={{ width:64, height:64, borderRadius:8 }} alt="" />
+                : <div style={{ width:64, height:64, borderRadius:8, background:"var(--bg-hover)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.8rem" }}>👤</div>
+              }
+              <div style={{
+                position:"absolute", bottom:2, right:2, width:12, height:12, borderRadius:"50%",
+                background: STATE_COLORS[result.personastate ?? 0],
+                border:"2px solid var(--bg-card)",
+              }} />
+            </div>
+
+            <div style={{ flex:1 }}>
+              <div style={{ color:"var(--text-bright)", fontWeight:700, fontSize:"1.1rem", marginBottom:4 }}>
+                {result.personaname}
+              </div>
+              <div style={{ color:"var(--text-secondary)", fontSize:".78rem", marginBottom:8 }}>
+                Steam ID: {result.steam_id}
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <div style={{ width:8, height:8, borderRadius:"50%", background: STATE_COLORS[result.personastate ?? 0] }} />
+                <span style={{ color: STATE_COLORS[result.personastate ?? 0], fontSize:".78rem" }}>
+                  {uk ? STATE_UK[result.personastate ?? 0] : STATE_EN[result.personastate ?? 0]}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display:"flex", flexDirection:"column", gap:8, flexShrink:0 }}>
+              <button
+                className="btn btn-primary"
+                onClick={() => navigate(`/profile/${result.steam_id}`)}
+                style={{ fontSize:".85rem" }}
+              >
+                {uk ? "Переглянути профіль" : "View Profile"}
+              </button>
+              {result.profileurl && (
+                <a href={result.profileurl} target="_blank" rel="noreferrer"
+                  className="btn btn-outline" style={{ textDecoration:"none", fontSize:".85rem", textAlign:"center" }}>
+                  Steam ↗
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-
-

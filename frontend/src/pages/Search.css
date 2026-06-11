@@ -1,14 +1,92 @@
-.search-container { max-width: 800px; margin: 0 auto; padding: 28px 24px; }
-.search-input-group { display: flex; gap: 12px; margin-bottom: 12px; }
-.search-input { flex: 1; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); outline: none; transition: 0.2s; }
-.search-input:focus { border-color: var(--accent); }
-.search-input.error { border-color: var(--accent-red); }
+.search-container { 
+  max-width: 800px; 
+  margin: 0 auto; 
+  padding: 28px 24px; 
+}
 
-.result-card { padding: 24px; }
-.player-info { display: flex; alignItems: center; gap: 16px; margin-bottom: 20px; }
-.avatar-wrapper { position: relative; flex-shrink: 0; }
-.avatar-wrapper img { width: 80px; height: 80px; border-radius: 8px; }
-.status-indicator { position: absolute; bottom: 3px; right: 3px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--bg-card); }
-.status-text { display: flex; alignItems: center; gap: 6px; font-size: 0.8rem; font-weight: 500; }
-.dot { width: 8px; height: 8px; border-radius: 50%; }
-.actions { display: flex; gap: 10px; }
+.search-input-group { 
+  display: flex; 
+  gap: 12px; 
+  margin-bottom: 12px; 
+}
+
+.search-input { 
+  flex: 1; 
+  padding: 12px 16px; 
+  background: var(--bg-card); 
+  border: 1px solid var(--border); 
+  border-radius: var(--radius); 
+  color: var(--text-primary); 
+  outline: none; 
+  font-size: 1rem;
+  /* Плавні переходи для зміни теми та фокусу */
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.4s ease, color 0.4s ease; 
+}
+
+.search-input:focus { 
+  border-color: var(--accent); 
+  /* Сучасний ефект "світіння" при кліку на поле пошуку */
+  box-shadow: 0 0 0 3px var(--bg-hover);
+}
+
+.search-input.error { 
+  border-color: var(--accent-red); 
+}
+
+.result-card { 
+  padding: 24px; 
+}
+
+.player-info { 
+  display: flex; 
+  /* ВИПРАВЛЕНО: alignItems -> align-items */
+  align-items: center; 
+  gap: 16px; 
+  margin-bottom: 20px; 
+}
+
+.avatar-wrapper { 
+  position: relative; 
+  flex-shrink: 0; 
+}
+
+.avatar-wrapper img { 
+  width: 80px; 
+  height: 80px; 
+  border-radius: 10px; /* Зробили кути трохи м'якшими під новий стиль */
+  object-fit: cover;
+}
+
+.status-indicator { 
+  position: absolute; 
+  bottom: 3px; 
+  right: 3px; 
+  width: 14px; 
+  height: 14px; 
+  border-radius: 50%; 
+  border: 2px solid var(--bg-card);
+  /* Плавна зміна рамки при перемиканні теми */
+  transition: border-color 0.4s ease;
+}
+
+.status-text { 
+  display: flex; 
+  /* ВИПРАВЛЕНО: alignItems -> align-items */
+  align-items: center; 
+  gap: 6px; 
+  font-size: 0.8rem; 
+  font-weight: 500; 
+  color: var(--text-secondary); /* Додано змінну кольору */
+}
+
+.dot { 
+  width: 8px; 
+  height: 8px; 
+  border-radius: 50%; 
+}
+
+.actions { 
+  display: flex; 
+  gap: 10px; 
+  flex-wrap: wrap; /* Дозволяє кнопкам переноситися на вузьких екранах */
+}

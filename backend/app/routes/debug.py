@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 import httpx
 import logging
+import asyncio
 
 from app.core.dependencies import get_db
 from app.models.platform import (
@@ -10,8 +11,6 @@ from app.models.platform import (
     PlatformConnection, Game
 )
 from app.models.user import User
-from app.services.user_service import get_or_create
-from app.services.analytics_service import get_overview
 from app.core.config import settings
 from app.core.redis import cache_get, cache_set
 
@@ -21,7 +20,22 @@ router = APIRouter(prefix="/api/v1/debug", tags=["debug"])
 # --- Helper functions ---
 
 async def _test_user(db: AsyncSession) -> User:
-    return await get_or_create(db, "test-uid-001", "test@nexusstats.com")
+    """Створює або отримує тестового користувача (адаптовано під нову JWT-модель без Firebase)."""
+    result = await db.execute(select(User).where(User.username == "debug_test_user"))
+    user = result.scalars().first()
+    
+    if not user:
+        user = User(
+            username="debug_test_user",
+            email="debug@nexusstats.com",
+            preferred_language="uk",
+            preferred_theme="dark"
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        
+    return user
 
 async def _fetch_steam_data(url: str, params: dict, cache_key: str, ttl: int = 3600):
     cached = await cache_get(cache_key)
@@ -73,17 +87,37 @@ def _rarity_from_percent(p: float) -> str:
 @router.post("/setup")
 async def setup_test_user(steam_id: str, db: AsyncSession = Depends(get_db)) -> dict:
     user = await _test_user(db)
-    from app.services.platform_service import connect_platform_account
-    conn = await connect_platform_account(db, user.id, "steam", steam_id, "Test User")
+    
+    # Пряме створення з'єднання, щоб уникнути конфліктів із зовнішніми сервісами
+    stmt = select(PlatformConnection).where(
+        PlatformConnection.user_id == user.id, 
+        PlatformConnection.platform == "steam"
+    )
+    res = await db.execute(stmt)
+    conn = res.scalars().first()
+    
+    if not conn:
+        conn = PlatformConnection(
+            user_id=user.id,
+            platform="steam",
+            platform_user_id=steam_id,
+            platform_username="Test Debugger User",
+            is_primary=True
+        )
+        db.add(conn)
+        await db.commit()
+        await db.refresh(conn)
+        
     return {"user_id": user.id, "steam_connected": conn.platform_username}
 
 @router.post("/clear")
 async def clear_user_data(db: AsyncSession = Depends(get_db)) -> dict:
+    # Порядок видалення важливий для уникнення помилок ForeignKey
     tables = ["player_achievements", "player_games", "achievements", "games", "platform_connections"]
     for t in tables:
         await db.execute(text(f"DELETE FROM {t}"))
     await db.commit()
-    return {"message": "Data cleared"}
+    return {"message": "Data cleared successfully"}
 
 @router.get("/achievements")
 async def test_achievements(
@@ -108,13 +142,24 @@ async def test_achievements(
 
     app_ids = list(set(row[3] for row in rows))
     
-    # Завантаження даних Steam батчами (обмеження 20 ігор для швидкості)
+    # --- ОПТИМІЗАЦІЯ: Паралельне завантаження схем та відсотків ---
     schemas = {}
     percentages = {}
-    for app_id in app_ids[:20]:
-        schemas[app_id] = await _get_achievement_schema(app_id)
-        percentages[app_id] = await _get_global_percentages(app_id)
+    
+    async def fetch_app_data(app_id):
+        schema = await _get_achievement_schema(app_id)
+        pct = await _get_global_percentages(app_id)
+        return app_id, schema, pct
 
+    # Беремо до 20 ігор, щоб не перевантажити Steam API
+    tasks = [fetch_app_data(app_id) for app_id in app_ids[:20]]
+    fetch_results = await asyncio.gather(*tasks)
+
+    for app_id, schema, pct in fetch_results:
+        schemas[app_id] = schema
+        percentages[app_id] = pct
+
+    # Формування результату
     achievements = []
     for pa, ach, game_name, game_pid, platform, img_url in rows:
         schema_data = schemas.get(game_pid, {}).get(ach.api_name, {})

@@ -1,71 +1,150 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, Query
+from typing import List
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.dependencies import get_db, get_current_user
 from app.models.user import User
-from app.models.platform import PlatformConnection
-from app.services.analytics_service import get_overview, get_achievements_by_rarity
+from app.models.platform import PlatformConnection, Game, PlayerGame, PlayerAchievement, Achievement
+from app.services.analytics_service import get_overview # Залишив тільки overview
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+async def resolve_target_user(current_user: User, steam_id: str | None, db: AsyncSession) -> User:
+    if not steam_id:
+        return current_user
+        
+    res = await db.execute(
+        select(User).join(PlatformConnection).where(
+            PlatformConnection.platform == "steam",
+            PlatformConnection.platform_user_id == steam_id,
+        )
+    )
+    found = res.scalar_one_or_none()
+    
+    if not found:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Користувача зі SteamID {steam_id} не знайдено в базі системи. Можливо, він ще не підключив свій акаунт."
+        )
+        
+    return found
 
 @router.get("/overview")
 async def overview(
     platform: str | None = Query(default=None),
-    steam_id: str | None = Query(default=None), # Додано для підтримки аналітики друзів
+    steam_id: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Загальна аналітика по всіх або одній платформі (для себе або друга)."""
-    target_user = current_user
-    
-    if steam_id:
-        result = await db.execute(
-            select(User).join(PlatformConnection).where(
-                PlatformConnection.platform == "steam",
-                PlatformConnection.platform_user_id == steam_id
-            )
-        )
-        user_found = result.scalar_one_or_none()
-        if user_found:
-            target_user = user_found
+    target = await resolve_target_user(current_user, steam_id, db)
+    return await get_overview(db, target, platform)
 
-    return await get_overview(db, target_user, platform)
-
-
+# ФІКС 1: Переписано на OUTER JOIN, додано всі поля та збільшено ліміт
 @router.get("/achievements/rare", response_model=List[dict])
 async def rare_achievements(
-    limit: int = Query(default=50, le=100),
-    steam_id: str | None = Query(default=None), # КРИТИЧНО: додано для відображення досягнень друзів!
+    limit: int = Query(default=200, le=2000), # Збільшено ліміт, щоб фронтенд міг тягнути більше
+    steam_id: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[dict]:
-    """Рідкісні досягнення гравця (твої або твого друга за його steam_id)."""
-    target_user = current_user
+    target = await resolve_target_user(current_user, steam_id, db)
     
-    if steam_id:
-        # Шукаємо користувача NexusStats, який прив'язав цей steam_id
-        result = await db.execute(
-            select(User).join(PlatformConnection).where(
-                PlatformConnection.platform == "steam",
-                PlatformConnection.platform_user_id == steam_id
-            )
+    conn_res = await db.execute(
+        select(PlatformConnection).where(
+            PlatformConnection.user_id == target.id,
+            PlatformConnection.platform == "steam"
         )
-        user_found = result.scalar_one_or_none()
-        if not user_found:
-            # Якщо друга немає в нашій системі, повертаємо порожній список без помилки 500
-            return []
-        target_user = user_found
+    )
+    conn = conn_res.scalar_one_or_none()
+    if not conn:
+        return []
 
-    return await get_achievements_by_rarity(db, target_user, limit)
+    # Беремо ВСІ досягнення з ігор гравця, і робимо LEFT JOIN з його прогресом
+    stmt = (
+        select(Achievement, PlayerAchievement, Game)
+        .join(Game, Achievement.game_id == Game.id)
+        .join(PlayerGame, (PlayerGame.game_id == Game.id) & (PlayerGame.connection_id == conn.id))
+        .outerjoin(
+            PlayerAchievement,
+            (PlayerAchievement.achievement_id == Achievement.id) &
+            (PlayerAchievement.player_game_id == PlayerGame.id)
+        )
+        # ФІКС: Спочатку показуємо ТІ ЩО ВЖЕ ОТРИМАНІ, а в їх межах сортуємо за рідкістю!
+        .order_by(
+            PlayerAchievement.achieved.desc().nulls_last(),
+            Achievement.rarity_percent.asc()
+        )
+        .limit(limit)
+    )
+    res = await db.execute(stmt)
 
-@router.get("/games/{game_id}/achievements", response_model=List[dict])
+    results = []
+    for ach, p_ach, game in res.all():
+        results.append({
+            "id": ach.id,
+            "api_name": ach.api_name,
+            "display_name": ach.display_name,
+            "description": ach.description,
+            "icon_url": ach.icon_url,
+            "icon_gray_url": ach.icon_gray_url,   # Додано сіру іконку
+            "rarity_percent": ach.rarity_percent, # Додано відсоток рідкості (фікс 100%)
+            "hidden": ach.hidden,
+            "achieved": p_ach.achieved if p_ach else False, # Якщо немає запису - значить False
+            "unlock_time": p_ach.unlock_time if p_ach else None,
+            "game_name": game.name,
+            "game_icon": game.img_icon_url,
+            "platform": game.platform,
+            "platform_game_id": game.platform_game_id
+        })
+
+    return results
+
+# ФІКС 2: Такі ж зміни з OUTER JOIN для сторінки конкретної гри
+@router.get("/games/{platform_game_id}/achievements")
 async def game_achievements(
-    game_id: str,
-    steam_id: str = Query(..., description="Steam ID гравця, чиї досягнення ми дивимось"),
-    db: AsyncSession = Depends(get_db),
+    platform_game_id: str,
+    steam_id: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> List[dict]:
-    """Отримання досягнень конкретної гри для профілю користувача або його друга."""
-    return await get_game_achievements(db, steam_id, game_id)
+    target = await resolve_target_user(current_user, steam_id, db)
+    
+    conn_res = await db.execute(
+        select(PlatformConnection).where(
+            PlatformConnection.user_id == target.id,
+            PlatformConnection.platform == "steam"
+        )
+    )
+    conn = conn_res.scalar_one_or_none()
+    if not conn:
+        return []
+        
+    stmt = (
+        select(Achievement, PlayerAchievement)
+        .join(Game, Achievement.game_id == Game.id)
+        .join(PlayerGame, (PlayerGame.game_id == Game.id) & (PlayerGame.connection_id == conn.id))
+        .outerjoin(
+            PlayerAchievement,
+            (PlayerAchievement.achievement_id == Achievement.id) &
+            (PlayerAchievement.player_game_id == PlayerGame.id)
+        )
+        .where(Game.platform_game_id == str(platform_game_id))
+    )
+    res = await db.execute(stmt)
+    
+    results = []
+    for ach, p_ach in res.all():
+        results.append({
+            "api_name": ach.api_name,
+            "display_name": ach.display_name,
+            "description": ach.description,
+            "icon_url": ach.icon_url,
+            "icon_gray_url": ach.icon_gray_url,   # Додано сіру іконку
+            "rarity_percent": ach.rarity_percent, # Додано відсоток
+            "hidden": ach.hidden,
+            "achieved": p_ach.achieved if p_ach else False,
+            "unlock_time": p_ach.unlock_time if p_ach else None
+        })
+        
+    return results

@@ -1,14 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useApp } from '../store'; // 🔌 Підключаємо твій глобальний стор для підтримки мов та тем
+import { useApp } from '../store';
+import api, { getOverview } from '../api'; // 🔌 Підключаємо наш налаштований Axios
 import './Settings.css';
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function Settings() {
   const [searchParams, setSearchParams] = useSearchParams();
   
-  // Використовуємо реактивний стан мови з твого спільного провайдера стору
   const { language } = useApp();
   const isUk = language === "uk";
 
@@ -23,50 +21,35 @@ export default function Settings() {
 
   // 1. ПЕРЕВІРКА НАЯВНИХ ПІДКЛЮЧЕНЬ ПРИ ВХОДІ НА СТОРІНКУ
   useEffect(() => {
-    const checkExistingConnections = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          setLoading(false);
-          return;
-        }
-
-        const response = await fetch(`${API_URL}/api/v1/analytics/overview`, {
-          method: "GET",
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (response.ok) {
-          const overviewData = await response.json();
-          // Перевіряємо, чи є підключення до steam у структурі breakdown бекенду
-          const hasSteam = overviewData.platforms_breakdown?.some(p => p.platform === "steam") || overviewData.total_games > 0;
-          setConnections(prev => ({ ...prev, steam: !!hasSteam }));
-        }
-      } catch (error) {
+    // Тепер ми просто викликаємо функцію з api.js, яка сама додасть токен
+    getOverview()
+      .then(response => {
+        const overviewData = response.data;
+        const hasSteam = overviewData.platforms_breakdown?.some(p => p.platform === "steam") || overviewData.total_games > 0;
+        setConnections(prev => ({ ...prev, steam: !!hasSteam }));
+      })
+      .catch(error => {
         console.error('Помилка перевірки статусів платформ:', error);
-      } finally {
+      })
+      .finally(() => {
         setLoading(false);
-      }
-    };
-
-    checkExistingConnections();
+      });
   }, []);
 
-  // 2. ОБРОБКА ПОВЕРНЕННЯ ЗІ STEAM OPENID (Твій оригінальний успішний редірект)
+  // 2. ОБРОБКА ПОВЕРНЕННЯ ЗІ STEAM OPENID
   useEffect(() => {
     const status = searchParams.get('status');
-    const platform = searchParams.get('platform');
+    // В нашому бекенді ми повертаємо просто ?sync=success, але я залишив твою логіку для сумісності.
+    // Якщо ти робив редирект на /dashboard?sync=success, то тут варто перевірити саме це.
+    const syncStatus = searchParams.get('sync'); 
 
-    if (status === 'success' && platform === 'steam') {
+    if (status === 'success' || syncStatus === 'success') {
       setConnections(prev => ({ ...prev, steam: true }));
-      setSearchParams({});
+      setSearchParams({}); // Очищаємо URL
       
       alert(isUk 
-        ? 'Ваш акаунт Steam успішно синхронізовано через захищену сесію!' 
-        : 'Your Steam account has been successfully synchronized via secure session!'
+        ? 'Ваш акаунт Steam успішно синхронізовано!' 
+        : 'Your Steam account has been successfully synchronized!'
       );
     }
   }, [searchParams, setSearchParams, isUk]);
@@ -75,47 +58,23 @@ export default function Settings() {
   const handleConnectSteam = async () => {
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
+      // Використовуємо наш екземпляр api
+      const response = await api.get('/platforms/connect/steam');
       
-      if (!token) {
-        alert(isUk 
-          ? 'Помилка: Ви не авторизовані в системі NexusStats. Будь ласка, перезайдіть в акаунт.' 
-          : 'Error: You are not authorized in NexusStats. Please re-login.'
-        );
-        setActionLoading(false);
-        return;
-      }
-
-      const response = await fetch(`${API_URL}/api/v1/platforms/connect/steam`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.status === 401) {
-        alert(isUk ? 'Сесія входу застаріла. Будь ласка, перезайдіть у свій акаунт.' : 'Session expired. Please re-login.');
-        setActionLoading(false);
-        return;
-      }
-
-      const data = await response.json();
-      
-      if (data.url) {
-        window.location.href = data.url;
+      if (response.data?.url) {
+        window.location.href = response.data.url;
       } else {
         alert(isUk ? 'Не вдалося отримати посилання для авторизації від бекенду.' : 'Failed to receive authorization URL from backend.');
-        setActionLoading(false);
       }
     } catch (error) {
       console.error('Помилка при спробі підключення Steam:', error);
       alert(isUk ? 'Сталася помилка з\'єднання з сервером API.' : 'API Server connection error.');
+    } finally {
       setActionLoading(false);
     }
   };
 
-  // 4. ЛОГІКА ВІДКЛЮЧЕННЯ STEAM АКАУНТА (ОНОВЛЕНО Й ВИПРАВЛЕНО)
+  // 4. ЛОГІКА ВІДКЛЮЧЕННЯ STEAM АКАУНТА
   const handleDisconnectSteam = async () => {
     const confirmText = isUk 
       ? "Ви впевнені, що хочете відключити Steam? Усі проіндексовані ігри та досягнення будуть видалені з бази даних."
@@ -125,23 +84,11 @@ export default function Settings() {
 
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
+      // Використовуємо правильний ендпоінт через axios
+      await api.delete('/profile/connections/steam');
       
-      // ВИПРАВЛЕНО: Змінено метод на DELETE та вказано правильний ендпоінт роутера профілів
-      const response = await fetch(`${API_URL}/api/v1/profile/connections/steam`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        setConnections(prev => ({ ...prev, steam: false }));
-        alert(isUk ? "Акаунт успішно відключено!" : "Account disconnected successfully!");
-      } else {
-        alert(isUk ? "Не вдалося відключити акаунт." : "Failed to disconnect account.");
-      }
+      setConnections(prev => ({ ...prev, steam: false }));
+      alert(isUk ? "Акаунт успішно відключено!" : "Account disconnected successfully!");
     } catch (error) {
       console.error('Помилка відключення Steam:', error);
       alert(isUk ? 'Сталася помилка на сервері.' : 'Server error occurred.');
@@ -152,7 +99,9 @@ export default function Settings() {
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh" }}>
-      <div style={{ color: "var(--accent)", fontSize: "1.1rem" }}>{isUk ? "Завантаження конфігурації..." : "Loading configuration..."}</div>
+      <div style={{ color: "var(--accent)", fontSize: "1.1rem" }}>
+        {isUk ? "Завантаження конфігурації..." : "Loading configuration..."}
+      </div>
     </div>
   );
 

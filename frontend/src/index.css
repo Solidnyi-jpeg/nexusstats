@@ -1,50 +1,71 @@
-* { margin: 0; padding: 0; box-sizing: border-box; }
+* { 
+  margin: 0; 
+  padding: 0; 
+  box-sizing: border-box; 
+}
 
+/* =========================================
+   ❄️ ПАЛІТРА: ЗИМА / ХОЛОД (ТЕМНА ТЕМА - ЗА ЗАМОВЧУВАННЯМ)
+========================================= */
 :root {
-  --bg-primary: #0f1923;
-  --bg-secondary: #1a2332;
-  --bg-card: #16202d;
-  --bg-hover: #1e3a52;
-  --accent: #66c0f4;
-  --accent-green: #4caf50;
-  --accent-gold: #f8c63a;
-  --accent-red: #ef5350;
-  --accent-purple: #ab47bc;
-  --text-primary: #c7d5e0;
-  --text-secondary: #8ba3b8;
-  --text-bright: #ffffff;
-  --border: #2a3f5c;
-  --shadow: 0 4px 24px rgba(0,0,0,0.5);
-  --radius: 8px;
+  --bg-primary: #0D1117;      /* Глибокий нічний синьо-сірий */
+  --bg-secondary: #010409;    /* Ще темніший для хедерів/сайдбарів */
+  --bg-card: #161B22;         /* Холодний відтінок для карток */
+  --bg-hover: #21262D;        /* Морозний при наведенні */
+  
+  --accent: #58A6FF;          /* Яскравий льодяний синій */
+  --accent-green: #3FB950;    /* Хвойний зелений */
+  --accent-gold: #E3B341;     /* Бліде зимове сонце */
+  --accent-red: #FF7B72;      /* Холодний корал */
+  --accent-purple: #BC8CFF;   /* Морозний фіолетовий */
+  
+  --text-primary: #C9D1D9;    /* Світло-сірий */
+  --text-secondary: #8B949E;  /* Засніжений приглушений сірий */
+  --text-bright: #F0F6FC;     /* Сніжно-білий */
+  
+  --border: #30363D;          /* Холодний контур */
+  --shadow: 0 6px 16px rgba(0, 0, 0, 0.4); /* Глибока тінь */
+  --radius: 12px;             /* Сучасні м'які кути (було 8px) */
 }
 
+/* =========================================
+   🎨 ПАЛІТРА: ОСІНЬ / ЛІТО (СВІТЛА ТЕМА)
+========================================= */
 [data-theme="light"] {
-  --bg-primary: #f0f4f8;
-  --bg-secondary: #ffffff;
-  --bg-card: #ffffff;
-  --bg-hover: #e8f0fe;
-  --accent: #1a73e8;
-  --accent-green: #2e7d32;
-  --accent-gold: #f57f17;
-  --accent-red: #c62828;
-  --text-primary: #1a1a2e;
-  --text-secondary: #5f6368;
-  --text-bright: #000000;
-  --border: #dadce0;
-  --shadow: 0 2px 12px rgba(0,0,0,0.1);
+  --bg-primary: #FDF9F1;      /* Теплий кремовий фон */
+  --bg-secondary: #F5EBE1;    /* Трохи темніший кремовий для хедерів */
+  --bg-card: #FFFFFF;         /* Чистий білий для карток */
+  --bg-hover: #FFF1E0;        /* Ніжний персиковий при наведенні */
+  
+  --accent: #E35D30;          /* Теплий осінній оранжево-червоний */
+  --accent-green: #5C9649;    /* Оливковий лісовий зелений */
+  --accent-gold: #E59819;     /* Тепле золото */
+  --accent-red: #D94242;      /* Червоне осіннє листя */
+  --accent-purple: #9A5389;   /* Теплий ягідний */
+  
+  --text-primary: #4A332A;    /* М'який коричневий (читається краще за чорний) */
+  --text-secondary: #8C6A5D;  /* Коричнево-сірий */
+  --text-bright: #2A1711;     /* Насичений темний шоколад */
+  
+  --border: #E8D5C4;          /* Теплий контур */
+  --shadow: 0 4px 16px rgba(227, 93, 48, 0.08); /* Легка тепла тінь */
 }
 
+/* =========================================
+   ГЛОБАЛЬНІ СТИЛІ ТА АНІМАЦІЇ
+========================================= */
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: "Segoe UI", Arial, sans-serif;
   min-height: 100vh;
-  transition: background 0.3s, color 0.3s;
+  /* Плавний перехід при кліку на зміну теми */
+  transition: background-color 0.4s ease, color 0.4s ease;
 }
 
-::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: var(--bg-primary); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 .card {
@@ -52,6 +73,14 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  /* Плавні ховери карток і переходи кольору */
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.4s ease, border-color 0.4s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+  opacity: 0.98;
 }
 
 .btn {
@@ -61,15 +90,20 @@ body {
   cursor: pointer;
   font-weight: 600;
   font-size: 0.9rem;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
 }
 
 .btn-primary {
   background: var(--accent);
-  color: var(--bg-primary);
+  color: #ffffff; /* Завжди білий текст на акцентній кнопці виглядає найкраще */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-.btn-primary:hover { opacity: 0.85; }
+.btn-primary:hover { 
+  opacity: 0.9; 
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
 
 .btn-outline {
   background: transparent;
@@ -79,5 +113,71 @@ body {
 
 .btn-outline:hover {
   background: var(--accent);
-  color: var(--bg-primary);
+  color: #ffffff;
+}
+
+
+/* =========================================
+   Анімація завантаження (Справжній 3D Куб)
+========================================= */
+.loading-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  gap: 40px; /* Трохи більше місця для об'ємного куба */
+}
+
+/* Сцена з перспективою */
+.cube-wrapper {
+  width: 60px;
+  height: 60px;
+  perspective: 600px;
+}
+
+/* Сам 3D контейнер */
+.cube-3d {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  animation: spin3D 3s infinite linear;
+}
+
+/* Загальні стилі для кожної грані */
+.cube-face {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  border: 4px solid var(--bg-body); /* Створює ефект розділених деталей (як у кубика Рубіка) */
+  border-radius: 8px; /* Трохи згладжені кути */
+  opacity: 0.95;
+}
+
+/* Розставляємо грані у 3D просторі (по 30px від центру) і фарбуємо у твої змінні! */
+.cube-face.front  { transform: translateZ(30px); background: var(--accent); }
+.cube-face.back   { transform: rotateY(180deg) translateZ(30px); background: var(--accent-green); }
+.cube-face.right  { transform: rotateY(90deg) translateZ(30px); background: var(--accent-gold); }
+.cube-face.left   { transform: rotateY(-90deg) translateZ(30px); background: var(--accent-purple); }
+.cube-face.top    { transform: rotateX(90deg) translateZ(30px); background: var(--accent-red); }
+.cube-face.bottom { transform: rotateX(-90deg) translateZ(30px); background: var(--text-primary); }
+
+/* Складна анімація обертання по всіх трьох осях */
+@keyframes spin3D {
+  0%   { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+  100% { transform: rotateX(360deg) rotateY(720deg) rotateZ(360deg); }
+}
+
+.loading-text {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 1.1rem;
+  letter-spacing: 1px;
+  animation: pulseText 1.5s infinite ease-in-out;
+}
+
+@keyframes pulseText {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }

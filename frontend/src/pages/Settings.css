@@ -2,20 +2,23 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 40px 20px;
-  color: #f3f4f6;
+  /* ФІКС: Замінили жорсткий білий на змінну тексту */
+  color: var(--text-primary);
 }
 
 .settings-page h2 {
   font-size: 2rem;
   font-weight: 700;
   margin-bottom: 8px;
-  background: linear-gradient(90deg, #fff, #9ca3af);
+  /* ФІКС: Динамічний градієнт, який працює і в темній, і в світлій темі */
+  background: linear-gradient(90deg, var(--text-bright), var(--accent));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .settings-page .subtitle {
-  color: #9ca3af;
+  /* ФІКС: Замість сірого використовуємо змінну */
+  color: var(--text-secondary);
   font-size: 1rem;
   margin-bottom: 40px;
 }
@@ -29,9 +32,10 @@
 
 /* Базова картка платформи */
 .platform-card {
-  background: #1f2937; /* Dark Gray bg */
-  border: 1px solid #374151;
-  border-radius: 16px;
+  /* ФІКС: Фон і бордер тепер підтягуються з глобальної теми */
+  background: var(--bg-card); 
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 24px;
   display: flex;
   flex-direction: column;
@@ -44,14 +48,15 @@
 
 .platform-card:hover {
   transform: translateY(-4px);
-  border-color: #4b5563;
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
 }
 
 /* Стан: Підключено */
 .platform-card.connected {
-  border-color: #10b981; /* Зелений бордер */
-  background: linear-gradient(145deg, #1f2937, #111827);
+  border-color: var(--accent-green);
+  /* ФІКС: Прибрали темний градієнт, щоб він не був чорним на світлій темі */
+  background: var(--bg-card); 
 }
 
 .platform-card.connected::before {
@@ -59,8 +64,9 @@
   position: absolute;
   top: 12px;
   right: 12px;
-  background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  /* ФІКС: Прозорий зелений замість жорсткого кольору */
+  background: rgba(63, 185, 80, 0.15); 
+  color: var(--accent-green);
   padding: 4px 10px;
   border-radius: 20px;
   font-size: 0.75rem;
@@ -70,7 +76,7 @@
 /* Стан: Заблоковано (Майбутні інтеграції) */
 .platform-card.disabled {
   opacity: 0.6;
-  filter: grayscale(0.4);
+  filter: grayscale(0.8);
 }
 
 /* Блок інформації про платформу */
@@ -84,28 +90,30 @@
   font-size: 1.25rem;
   font-weight: 600;
   margin: 0 0 4px 0;
+  color: var(--text-bright);
 }
 
 .platform-info p {
-  color: #9ca3af;
+  color: var(--text-secondary);
   font-size: 0.875rem;
   margin: 0;
 }
 
-/* Плейсхолдери іконок (якщо немає SVG/зображень, вони будуть красивими кольоровими колами) */
+/* Плейсхолдери іконок */
 .platform-icon {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: #374151;
+  background: var(--bg-hover);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+/* Брендові кольори залишаємо жорсткими, бо це кольори компаній */
 .platform-icon.steam { background: #171a21; }
-.platform-icon.epic { background: #000000; }
+.platform-icon.epic { background: #333333; }
 .platform-icon.xbox { background: #107c10; }
 
 /* Універсальна кнопка підключення платформи */
@@ -113,7 +121,7 @@
   width: 100%;
   padding: 12px;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius);
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
@@ -125,7 +133,7 @@
   transform: scale(0.98);
 }
 
-/* Брендована кнопка Steam */
+/* Брендована кнопка Steam (завжди темна за гайдлайнами Steam) */
 .steam-btn {
   background: #2a475e;
   color: #fff;
@@ -137,31 +145,32 @@
 
 /* Брендована кнопка Epic */
 .epic-btn {
-  background: #ffffff;
-  color: #000000;
+  background: var(--text-bright);
+  color: var(--bg-primary);
 }
 
 /* Кнопка вимкнення (Disconnect) */
 .btn-secondary.disconnect {
   width: 100%;
   padding: 12px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--accent-red);
+  color: var(--accent-red);
+  border-radius: var(--radius);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .btn-secondary.disconnect:hover {
-  background: #ef4444;
+  background: var(--accent-red);
   color: #fff;
 }
 
 /* Вимкнені кнопки */
 .btn-platform:disabled {
-  background: #374151;
-  color: #6b7280;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
   cursor: not-allowed;
 }

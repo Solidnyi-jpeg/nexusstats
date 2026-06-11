@@ -1,16 +1,18 @@
-"""initial
+"""Initial completely fresh database schema
 
-Revision ID: 1f52e5e5a9b9
+Revision ID: 9c53603acec9
 Revises: 
-Create Date: 2026-05-20 11:50:03.892463
+Create Date: 2026-06-04 01:15:35.882875
 
 """
 from typing import Sequence, Union
+
 from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = '1f52e5e5a9b9'
+# revision identifiers, used by Alembic.
+revision: str = '9c53603acec9'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -32,22 +34,22 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('platform', 'platform_game_id', name='uq_game_platform')
     )
+    op.create_index(op.f('ix_games_platform'), 'games', ['platform'], unique=False)
+    op.create_index(op.f('ix_games_platform_game_id'), 'games', ['platform_game_id'], unique=False)
     op.create_table('users',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
-    sa.Column('firebase_uid', sa.String(length=128), nullable=False),
-    sa.Column('email', sa.String(length=255), nullable=True),
-    sa.Column('username', sa.String(length=64), nullable=True),
-    sa.Column('avatar_url', sa.String(length=512), nullable=True),
-    sa.Column('is_active', sa.Boolean(), nullable=False),
-    sa.Column('preferred_language', sa.String(length=8), nullable=False),
+    sa.Column('username', sa.String(length=256), nullable=False),
+    sa.Column('email', sa.String(length=256), nullable=True),
+    sa.Column('hashed_password', sa.String(length=512), nullable=True),
+    sa.Column('preferred_language', sa.String(length=16), nullable=False),
     sa.Column('preferred_theme', sa.String(length=16), nullable=False),
+    sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('email'),
-    sa.UniqueConstraint('firebase_uid'),
-    sa.UniqueConstraint('username')
+    sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
+    op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
     op.create_table('achievements',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('game_id', sa.BigInteger(), nullable=False),
@@ -98,7 +100,7 @@ def upgrade() -> None:
     sa.Column('game_id', sa.BigInteger(), nullable=False),
     sa.Column('playtime_minutes', sa.Integer(), nullable=False),
     sa.Column('playtime_2weeks_minutes', sa.Integer(), nullable=False),
-    sa.Column('last_played_at', sa.String(length=64), nullable=True),
+    sa.Column('last_played_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('achievement_count', sa.Integer(), nullable=False),
     sa.Column('achievement_total', sa.Integer(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -129,6 +131,10 @@ def downgrade() -> None:
     op.drop_table('platform_connections')
     op.drop_table('bookmarks')
     op.drop_table('achievements')
+    op.drop_index(op.f('ix_users_username'), table_name='users')
+    op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_table('users')
+    op.drop_index(op.f('ix_games_platform_game_id'), table_name='games')
+    op.drop_index(op.f('ix_games_platform'), table_name='games')
     op.drop_table('games')
     # ### end Alembic commands ###

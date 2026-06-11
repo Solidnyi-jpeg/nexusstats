@@ -1,20 +1,53 @@
-import { Link, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useApp } from "../store";
+import { Label } from "recharts";
+
+// Виділяємо окремий компонент для посилання, щоб чисто працювати з hover-станом
+function NavItem({ to, label, icon }) {
+  const [isHovered, setIsHovered] = useState(false);
+
+  return (
+    <NavLink
+      to={to}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={({ isActive }) => ({
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 14px",
+        borderRadius: "6px",
+        textDecoration: "none",
+        // Динамічно визначаємо колір за допомогою isActive від NavLink та нашого isHovered
+        color: isActive ? "var(--accent)" : isHovered ? "var(--text-primary)" : "var(--text-secondary)",
+        background: isActive ? "var(--bg-hover)" : "transparent",
+        fontSize: "0.9rem",
+        fontWeight: "500",
+        transition: "all 0.2s ease",
+      })}
+    >
+      <span>{icon}</span>
+      <span>{label}</span>
+    </NavLink>
+  );
+}
 
 export default function Navbar() {
   const { t } = useTranslation();
   const { theme, toggleTheme, language, changeLanguage } = useApp();
-  const location = useLocation();
 
   const links = [
     { to: "/", label: t("nav.dashboard"), icon: "📊" },
     { to: "/achievements", label: t("nav.achievements"), icon: "🏆" },
     { to: "/friends", label: t("nav.friends"), icon: "👥" },
+    { to: "/esports", label: t("esport"), icon: "A" }, 
     { to: "/search", label: t("nav.search"), icon: "🔍" },
     { to: "/settings", label: t("nav.settings"), icon: "⚙️" },
+    
   ];
-
+  
   return (
     <nav style={{
       background: "var(--bg-card)",
@@ -28,7 +61,7 @@ export default function Navbar() {
       top: 0,
       zIndex: 100,
     }}>
-      <Link to="/" style={{
+      <NavLink to="/" style={{
         display: "flex", alignItems: "center", gap: "10px",
         textDecoration: "none",
       }}>
@@ -37,41 +70,29 @@ export default function Navbar() {
           color: "var(--accent)", fontWeight: "bold",
           fontSize: "1.1rem", letterSpacing: "0.1em",
         }}>NEXUSSTATS</span>
-      </Link>
+      </NavLink>
 
       <div style={{ display: "flex", gap: "4px" }}>
         {links.map(link => (
-          <Link key={link.to} to={link.to} style={{
-            display: "flex", alignItems: "center", gap: "6px",
-            padding: "6px 14px", borderRadius: "6px",
-            textDecoration: "none",
-            color: location.pathname === link.to ? "var(--accent)" : "var(--text-secondary)",
-            background: location.pathname === link.to ? "var(--bg-hover)" : "transparent",
-            fontSize: "0.9rem", fontWeight: "500",
-            transition: "all 0.2s",
-          }}
-          onMouseEnter={e => {
-            if (location.pathname !== link.to)
-              e.currentTarget.style.color = "var(--text-primary)";
-          }}
-          onMouseLeave={e => {
-            if (location.pathname !== link.to)
-              e.currentTarget.style.color = "var(--text-secondary)";
-          }}
-          >
-            <span>{link.icon}</span>
-            <span>{link.label}</span>
-          </Link>
+          <NavItem key={link.to} {...link} />
         ))}
       </div>
 
       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-        <button onClick={() => changeLanguage(language === "uk" ? "en" : "uk")}
-          className="btn btn-outline" style={{ padding: "4px 12px", fontSize: "0.8rem" }}>
-          {language === "uk" ? "EN" : "УК"}
+        <button 
+          onClick={() => changeLanguage(language === "uk" ? "en" : "uk")}
+          className="btn btn-outline" 
+          style={{ padding: "4px 12px", fontSize: "0.8rem" }}
+          aria-label="Toggle Language"
+        >
+          {language === "uk" ? "EN" : "UA"}
         </button>
-        <button onClick={toggleTheme}
-          className="btn btn-outline" style={{ padding: "4px 10px" }}>
+        <button 
+          onClick={toggleTheme}
+          className="btn btn-outline" 
+          style={{ padding: "4px 10px" }}
+          aria-label="Toggle Theme"
+        >
           {theme === "dark" ? "☀️" : "🌙"}
         </button>
       </div>

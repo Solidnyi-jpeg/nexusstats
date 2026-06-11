@@ -1,34 +1,55 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# 1. Додай імпорт сюди, на самий верх
-from app.core.firebase import init_firebase
+
 from app.core.config import settings
+from app.core.redis import close_redis
 from app.routes import auth, platforms, analytics, profile, debug, games
 from app.integrations.steam.client import steam_client
-from app.integrations.steam.store import store_http_client
+from app.integrations.steam.store import close_store_client
+from app.routes import oauth
 
-# 2. Правильно налаштований Lifespan
+# Налаштовуємо логер для головного файлу
+logger = logging.getLogger(__name__)
+
+# Правильно налаштований Lifespan (життєвий цикл застосунку)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- СТАРТ СЕРВЕРА ---
-    init_firebase()  # Firebase ініціалізується тут
-    print("🚀 FastAPI та Firebase успішно запущені.")
-    yield
+    logger.info("🚀 FastAPI сервер успішно запущено (без Firebase!).")
+    
+    yield  # Тут працює сам застосунок
+    
     # --- ЗУПИНКА СЕРВЕРА ---
-    # Тут закриваємо з'єднання
-    await steam_client.close()
-    await store_http_client.aclose()
-    print("🛑 FastAPI зупинено, ресурси звільнено.")
+    logger.info("🛑 FastAPI зупиняється. Починаємо звільнення ресурсів...")
+    
+    # Коректно закриваємо всі відкриті з'єднання та HTTP-клієнти
+    try:
+        await steam_client.close()
+        await close_store_client()
+        await close_redis()
+        logger.info("✅ Всі ресурси та з'єднання успішно звільнено.")
+    except Exception as e:
+        logger.error(f"⚠️ Помилка під час звільнення ресурсів: {e}")
 
-# 3. Ініціалізація FastAPI
-app = FastAPI(title="NexusStats API", version="1.0.0", lifespan=lifespan)
+# Ініціалізація FastAPI
+app = FastAPI(
+    title=settings.app_name, 
+    version="1.0.0", 
+    lifespan=lifespan
+)
 
+# Налаштування CORS (дозволяємо локальні адреси + адресу з конфігу)
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    settings.frontend_url
 ]
+
+# Фільтруємо дублікати, якщо локалка збігається з конфігом
+origins = list(set(origins))
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,10 +59,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Маршрути
+# Підключення всіх маршрутів
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(platforms.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(profile.router, prefix="/api/v1")
 app.include_router(debug.router, prefix="/api/v1")
 app.include_router(games.router, prefix="/api/v1")
+app.include_router(oauth.router, prefix="/api/v1")
