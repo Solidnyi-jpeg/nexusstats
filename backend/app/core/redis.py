@@ -12,19 +12,19 @@ async def get_redis() -> aioredis.Redis | None:
     global _redis
     if _redis is None:
         try:
-            # Створюємо пул з'єднань
+           
             _redis = aioredis.from_url(
                 settings.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
                 socket_connect_timeout=2.0
             )
-            # Примусово робимо ping, щоб переконатися, що сервер справді доступний
+            
             await _redis.ping()
             logger.info("Успішне підключення до Redis.")
         except Exception as e:
             logger.error(f"Не вдалося підключитися до Redis: {e}")
-            _redis = None  # Скидаємо, щоб програма не падала
+            _redis = None  
     return _redis
 
 async def close_redis() -> None:
@@ -32,7 +32,7 @@ async def close_redis() -> None:
     global _redis
     if _redis:
         try:
-            # У нових версіях redis-py використовується aclose()
+            
             if hasattr(_redis, "aclose"):
                 await _redis.aclose()
             else:

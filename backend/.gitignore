@@ -9,6 +9,7 @@ __pycache__/
 .env
 serviceAccountKey.json
 .firebase_b64.txt
+node_modules/
 
 # Alembic
 # alembic/versions/

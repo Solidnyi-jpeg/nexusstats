@@ -16,14 +16,14 @@ def init_firebase() -> None:
         return
 
     try:
-        # 1. Пріоритет: Base64 (для CI/CD та хмари)
+        
         b64 = os.environ.get("FIREBASE_CREDENTIALS_BASE64")
         if b64:
             logger.info("Ініціалізація Firebase через Base64 змінні.")
             cred_dict = json.loads(base64.b64decode(b64).decode())
             cred = credentials.Certificate(cred_dict)
         else:
-            # 2. Локально: файл
+            
             logger.info(f"Ініціалізація Firebase через файл: {settings.firebase_credentials_path}")
             cred = credentials.Certificate(settings.firebase_credentials_path)
 

@@ -182,7 +182,7 @@ export default function FriendProfile() {
   const [achLoad, setAchLoad] = useState(true);
   const [tab, setTab] = useState("games");
   
-  // ФІКС: Змінили назву на isFavorite
+  
   const [isFavorite, setIsFavorite] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
@@ -193,7 +193,7 @@ export default function FriendProfile() {
 
     Promise.all([
       getPublicProfile(steamId),
-      api.get("/profile/bookmarks") // Запитуємо вибране при старті
+      api.get("/profile/bookmarks") 
     ])
       .then(([profRes, favRes]) => {
         const profData = profRes.data;

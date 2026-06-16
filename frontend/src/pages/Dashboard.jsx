@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useApp } from "../store";
 import { getOverview, forceSyncCurrentUser } from "../api";
 
-// --- Окремий підкомпонент для картки гри ---
+// Окремий підкомпонент для картки гри 
 function GameCard({ g, onClick }) {
   const [isHovered, setIsHovered] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -70,7 +70,7 @@ function GameCard({ g, onClick }) {
   );
 }
 
-// --- Головний компонент ---
+// Головний компонент 
 export default function Dashboard({ onSyncSuccess }) {
   const navigate = useNavigate();
   const { language } = useApp();
@@ -97,7 +97,7 @@ export default function Dashboard({ onSyncSuccess }) {
   useEffect(() => { 
     fetchData(); 
   }, []);
-
+  
   const handleForceSync = async () => {
     setSyncing(true);
     setSyncMsg("");
@@ -182,7 +182,7 @@ export default function Dashboard({ onSyncSuccess }) {
         ))}
       </div>
 
-      {/* ----------------- RECENT + TOP (НАДІЙНИЙ FLEXBOX) ----------------- */}
+      {/*  RECENT + TOP  */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "24px", marginBottom: "32px" }}>
         
         {/* Recent */}
@@ -200,7 +200,7 @@ export default function Dashboard({ onSyncSuccess }) {
                 <GameCard key={g.platform_game_id} g={g} 
                 onClick={() => {
                  if (g.platform_game_id === "570") {
-                  navigate("/dota"); // 👈 Якщо це Дота, кидаємо на круту аналітику
+                  navigate("/dota"); 
                  } else {
                  navigate(`/games/${g.platform}/${g.platform_game_id}`);
                  }
@@ -223,7 +223,7 @@ export default function Dashboard({ onSyncSuccess }) {
         </div>
       </div>
 
-      {/* ----------------- PLATFORMS (ЗАКОНСЕРВОВАНО) ----------------- */}
+      {/* ----------------- PLATFORMS (резерв) ----------------- */}
       {/* {(data.platforms_breakdown || []).filter(p => p.games > 0).length > 0 && (
         <div style={{ width: "100%", display: "block" }}>
           <h2 style={{ color: "var(--text-bright)", fontSize: "1rem", marginBottom: 12 }}>

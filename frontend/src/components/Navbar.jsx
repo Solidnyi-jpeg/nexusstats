@@ -31,7 +31,7 @@ function NavItem({ to, label, icon }) {
       <span>{icon}</span>
       <span>{label}</span>
     </NavLink>
-  );
+  );    
 }
 
 export default function Navbar() {
@@ -46,8 +46,8 @@ export default function Navbar() {
     { to: "/search", label: t("nav.search"), icon: "🔍" },
     { to: "/settings", label: t("nav.settings"), icon: "⚙️" },
     
-  ];
-  
+  ];                              
+   
   return (
     <nav style={{
       background: "var(--bg-card)",
