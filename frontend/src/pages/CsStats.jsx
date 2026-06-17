@@ -2,6 +2,19 @@ import { useState, useEffect } from "react";
 import { getCsStats } from "../api";
 import { useApp } from "../store";
 
+// Еталонний пул карт змагального сезону для синхронізації та заповнення пропусків
+const OFFICIAL_MAP_POOL = [
+  { id: "de_mirage", name: "Mirage" },
+  { id: "de_inferno", name: "Inferno" },
+  { id: "de_dust2", name: "Dust II" },
+  { id: "de_nuke", name: "Nuke" },
+  { id: "de_vertigo", name: "Vertigo" },
+  { id: "de_ancient", name: "Ancient" },
+  { id: "de_anubis", name: "Anubis" },
+  { id: "de_overpass", name: "Overpass" },
+  { id: "cs_office", name: "Office" }
+];
+
 export default function CsStats() {
   const { language } = useApp();
   const uk = language === "uk";
@@ -23,7 +36,34 @@ export default function CsStats() {
   if (error) return <div style={{ maxWidth: 600, margin: "60px auto", textAlign: "center" }} className="card"><p style={{ color: "var(--accent-red)", padding: 20 }}>{error}</p></div>;
   if (!stats) return null;
 
-  const { overall, maps, weapons } = stats;
+  const { overall, maps: backendMaps, weapons } = stats;
+
+  // Інтелектуальне з'єднання (Left Join): доповнюємо пропущені карти з нульовою активністю
+  const finalMapPool = OFFICIAL_MAP_POOL.map(poolMap => {
+    // Шукаємо карту у відповіді бекенду за повним збігом або без префікса "de_" / "cs_"
+    const userMap = backendMaps.find(m => 
+      m.id === poolMap.id || 
+      m.id === poolMap.id.replace(/^de_|^cs_/, "")
+    );
+
+    if (userMap) {
+      return {
+        ...userMap,
+        // Виправляємо назву на канонічну, якщо бекенд повернув сирий або некрасивий токен
+        name: userMap.name === "Dust2" ? "Dust II" : userMap.name,
+        hasMatches: userMap.matches > 0
+      };
+    }
+
+    // Якщо карти немає в телеметрії користувача, створюємо пустий об'єкт для візуалізації "зони ігнорування"
+    return {
+      id: poolMap.id,
+      name: poolMap.name,
+      matches: 0,
+      winrate: 0,
+      hasMatches: false
+    };
+  });
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
@@ -62,28 +102,45 @@ export default function CsStats() {
         <span>🗺️</span> {uk ? "Ефективність на картах" : "Map Efficiency"}
       </h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 32 }}>
-        {maps.map(m => (
+        {finalMapPool.map(m => (
           <div key={m.id} style={{ 
-            position: "relative", height: 100, borderRadius: 8, overflow: "hidden", 
-            boxShadow: "0 4px 12px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: 16
+            position: "relative", height: 110, borderRadius: 8, overflow: "hidden", 
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", justifyContent: "flex-end",
+            border: m.hasMatches ? "1px solid rgba(255,255,255,0.05)" : "1px dashed rgba(255,255,255,0.12)",
+            opacity: m.hasMatches ? 1 : 0.55,
+            transition: "all 0.2s ease"
           }}>
             {/* Офіційний бекграунд карти від Valve */}
             <div style={{ 
               position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 1,
               backgroundImage: `url(https://cdn.cloudflare.steamstatic.com/apps/csgo/images/csgo_react/maps/bg_${m.id}.png)`,
-              backgroundSize: "cover", backgroundPosition: "center", filter: "brightness(0.4) contrast(1.2)"
+              backgroundSize: "cover", backgroundPosition: "center", filter: "brightness(0.5) contrast(1.1)"
             }} />
             
-            <div style={{ position: "relative", zIndex: 2, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+            {/* Контрастна градієнтна підкладка для тексту, щоб назва чітко відрізнялася від картинки */}
+            <div style={{ 
+              position: "relative", zIndex: 2, display: "flex", justifyContent: "space-between", alignItems: "flex-end", padding: "14px 16px",
+              background: "linear-gradient(to top, rgba(10, 10, 14, 0.95) 0%, rgba(10, 10, 14, 0.7) 65%, rgba(10, 10, 14, 0) 100%)",
+              width: "100%", boxSizing: "border-box"
+            }}>
               <div>
-                <div style={{ color: "var(--text-bright)", fontSize: "1.2rem", fontWeight: 800, letterSpacing: 1 }}>{m.name}</div>
-                <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.85rem", fontWeight: 600 }}>
-                ~{m.matches} {uk ? "матчів" : "matches"}
-             </div>             
-             </div>
+                <div style={{ color: "var(--text-bright)", fontSize: "1.15rem", fontWeight: 800, letterSpacing: 0.5 }}>
+                  {m.name}
+                </div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem", fontWeight: 600, marginTop: 2 }}>
+                  {m.hasMatches ? `~${m.matches} ${uk ? "матчів" : "matches"}` : (uk ? "Немає матчів" : "No matches")}
+                </div>             
+              </div>
               <div style={{ textAlign: "right" }}>
-                <div style={{ color: m.winrate >= 50 ? "#66bb6a" : "#ef5350", fontSize: "1.4rem", fontWeight: 800 }}>{m.winrate}%</div>
-                <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.7rem", fontWeight: 700, letterSpacing: 1 }}>{uk ? "ВІНРЕЙТ" : "WINRATE"}</div>
+                <div style={{ 
+                  color: !m.hasMatches ? "var(--text-secondary)" : (m.winrate >= 50 ? "var(--accent-green)" : "var(--accent-red)"), 
+                  fontSize: "1.35rem", fontWeight: 800 
+                }}>
+                  {m.winrate}%
+                </div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.65rem", fontWeight: 700, letterSpacing: 1 }}>
+                  {uk ? "ВІНРЕЙТ" : "WINRATE"}
+                </div>
               </div>
             </div>
           </div>
@@ -125,7 +182,6 @@ export default function CsStats() {
                 <span style={{ color: w.accuracy > 25 ? "var(--accent-green)" : "var(--accent-gold)", fontWeight: 700, fontSize: "0.95rem" }}>
                   {w.accuracy}%
                 </span>
-                {/* Міні-прогрес бар точності */}
                 <div style={{ width: 60, height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 2, marginTop: 4, overflow: "hidden" }}>
                   <div style={{ width: `${w.accuracy}%`, height: "100%", background: w.accuracy > 25 ? "var(--accent-green)" : "var(--accent-gold)" }} />
                 </div>
