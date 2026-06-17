@@ -268,19 +268,6 @@ export default function Dashboard({ onSyncSuccess }) {
               </div>
             )}
           </div>
-
-          {/* Xbox Card */}
-          <div className="card" style={{ padding: 32, border: "2px solid rgba(16, 124, 16, 0.3)", opacity: 0.8 }}>
-            <div style={{ fontSize: "3rem", marginBottom: 16 }}>🟢</div>
-            <h3 style={{ color: "var(--text-bright)", fontSize: "1.5rem", marginBottom: 12 }}>Xbox Live</h3>
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: 24, minHeight: 40 }}>
-              {uk ? "Статистика досягнень та ігор екосистеми Microsoft." : "Achievements and game stats from Microsoft ecosystem."}
-            </p>
-            <button className="btn btn-outline" style={{ width: "100%", padding: "12px", borderColor: "#107C10", color: "#107C10", cursor: "not-allowed" }}>
-              {uk ? "🚀 В розробці" : "🚀 Coming Soon"}
-            </button>
-          </div>
-
         </div>
       </div>
     );
