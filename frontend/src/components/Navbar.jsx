@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom"; // Додано useNavigate
 import { useTranslation } from "react-i18next";
 import { useApp } from "../store";
-import { Label } from "recharts";
+import api from "../api"; // Імпортуємо api для запиту на бекенд
 
-// Виділяємо окремий компонент для посилання, щоб чисто працювати з hover-станом
 function NavItem({ to, label, icon }) {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -20,7 +19,6 @@ function NavItem({ to, label, icon }) {
         padding: "6px 14px",
         borderRadius: "6px",
         textDecoration: "none",
-        // Динамічно визначаємо колір за допомогою isActive від NavLink та нашого isHovered
         color: isActive ? "var(--accent)" : isHovered ? "var(--text-primary)" : "var(--text-secondary)",
         background: isActive ? "var(--bg-hover)" : "transparent",
         fontSize: "0.9rem",
@@ -36,6 +34,7 @@ function NavItem({ to, label, icon }) {
 
 export default function Navbar() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { theme, toggleTheme, language, changeLanguage } = useApp();
 
   const links = [
@@ -43,11 +42,22 @@ export default function Navbar() {
     { to: "/achievements", label: t("nav.achievements"), icon: "🏆" },
     { to: "/friends", label: t("nav.friends"), icon: "👥" },
     { to: "/esports", label: t("esport"), icon: "A" }, 
-    { to: "/search", label: t("nav.search"), icon: "🔍" },
+    { to: "/wot", label: "WoT Stats", icon: "🛡️" }, 
     { to: "/settings", label: t("nav.settings"), icon: "⚙️" },
-    
   ];                              
    
+  // ФІКС: Функція виходу з системи
+  const handleLogout = async () => {
+    try {
+      await api.post("/auth/logout"); // Повідомляємо бекенд
+    } catch (err) {
+      console.warn("Бекенд не відповів на logout", err);
+    } finally {
+      localStorage.removeItem("token"); // Видаляємо токен клієнта (зміни назву, якщо у тебе він називається access_token)
+      navigate("/welcome", { replace: true }); // Перекидаємо на стартову сторінку
+    }
+  };
+
   return (
     <nav style={{
       background: "var(--bg-card)",
@@ -94,6 +104,16 @@ export default function Navbar() {
           aria-label="Toggle Theme"
         >
           {theme === "dark" ? "☀️" : "🌙"}
+        </button>
+        
+        {/* Кнопка Виходу */}
+        <button 
+          onClick={handleLogout}
+          className="btn btn-outline" 
+          style={{ padding: "4px 10px", borderColor: "var(--accent-red)", color: "var(--accent-red)" }}
+          title={language === "uk" ? "Вийти" : "Logout"}
+        >
+          🚪
         </button>
       </div>
     </nav>

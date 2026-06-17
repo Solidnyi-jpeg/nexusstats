@@ -1,9 +1,10 @@
 import logging
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from pydantic import BaseModel # ДОДАНО ДЛЯ WARGAMING
 
 from app.core.config import settings
 from app.core.dependencies import get_db
@@ -15,12 +16,18 @@ from app.services.auth_service import create_access_token
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+@router.post("/logout")
+async def logout(response: Response):
+    """
+    Ендпоінт для безпечного виходу.
+    Вбиває refresh_token куки, якщо вони використовуються.
+    """
+    response.delete_cookie("refresh_token", httponly=True, secure=True, samesite="strict")
+    return {"status": "success", "message": "Успішно вийшли з системи"}
 
 @router.get("/steam/login")
 async def steam_login():
-    """
-    Генерує URL для авторизації через Steam OpenID та редиректить туди користувача.
-    """
+   
     return_url = f"{settings.api_url}/api/v1/auth/steam/callback"
     
     steam_openid_url = "https://steamcommunity.com/openid/login"
@@ -35,7 +42,6 @@ async def steam_login():
     
     query_string = "&".join([f"{k}={v}" for k, v in params.items()])
     return RedirectResponse(url=f"{steam_openid_url}?{query_string}")
-
 
 @router.get("/steam/callback")
 async def steam_callback(request: Request, db: AsyncSession = Depends(get_db)):
@@ -136,3 +142,55 @@ async def steam_callback(request: Request, db: AsyncSession = Depends(get_db)):
         await db.rollback()
         logger.error(f"Помилка при збереженні користувача: {str(e)}", exc_info=True)
         return RedirectResponse(url=f"{settings.frontend_url}/welcome?error=auth_failed")
+    
+# ==========================================
+# НОВИЙ БЛОК WARGAMING
+# ==========================================
+
+class WGLoginRequest(BaseModel):
+    account_id: str
+    nickname: str
+
+@router.post("/wargaming/login")
+async def wargaming_spa_login(req: WGLoginRequest, db: AsyncSession = Depends(get_db)):
+    """Реєстрація або вхід через Wargaming напряму з фронтенду"""
+    try:
+        # Шукаємо, чи є вже такий акаунт WG в базі
+        stmt = select(PlatformConnection).where(
+            PlatformConnection.platform == "wargaming",
+            PlatformConnection.platform_user_id == req.account_id
+        )
+        res = await db.execute(stmt)
+        connection = res.scalars().first()
+        
+        if connection:
+            # Користувач існує -> оновлюємо нік
+            user = await db.get(User, connection.user_id)
+            connection.platform_username = req.nickname
+            await db.commit()
+        else:
+            # Створюємо ПОВНІСТЮ НОВОГО користувача через Wargaming
+            unique_username = f"{req.nickname}_wg_{req.account_id[-4:]}"
+            user = User(username=unique_username, preferred_language="uk", preferred_theme="dark")
+            db.add(user)
+            await db.flush() # Отримуємо ID
+            
+            # Прив'язуємо Wargaming
+            connection = PlatformConnection(
+                user_id=user.id,
+                platform="wargaming",
+                platform_user_id=req.account_id,
+                platform_username=req.nickname,
+                is_primary=True
+            )
+            db.add(connection)
+            await db.commit()
+
+        # Генеруємо токен і повертаємо його напряму фронтенду
+        access_token = create_access_token(data={"sub": str(user.id), "username": user.username})
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Помилка при збереженні Wargaming користувача: {str(e)}")
+        raise HTTPException(status_code=500, detail="Помилка створення акаунта")

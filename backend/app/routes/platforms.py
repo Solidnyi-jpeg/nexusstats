@@ -1,11 +1,13 @@
 import urllib.parse
 import secrets
 import logging
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-import httpx
+from sqlalchemy.exc import IntegrityError # <--- ДОДАНО ДЛЯ ЗАХИСТУ ВІД ДУБЛІВ
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.dependencies import get_db, get_current_user
@@ -17,13 +19,18 @@ from app.services.platform_service import connect_platform_account
 from app.integrations.steam.sync import sync_steam_data_for_user
 from app.integrations.steam.client import steam_client
 
+try:
+    from app.integrations.wargaming.sync import sync_wargaming_data
+    HAS_WG_SYNC = True
+except ImportError:
+    HAS_WG_SYNC = False
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/platforms", tags=["Platforms"])
 
 STEAM_RETURN_URL = f"{settings.api_url}/api/v1/platforms/connect/steam/callback"
 STEAM_API_OPENID = "https://steamcommunity.com/openid/login"
 STEAM_API        = "https://api.steampowered.com"
-
 
 async def safe_background_steam_sync(user_id: int, steam_id: str):
     async with async_session() as standalone_db:
@@ -34,6 +41,18 @@ async def safe_background_steam_sync(user_id: int, steam_id: str):
         except Exception as e:
             logger.error(f"Помилка фонової синхронізації: {str(e)}")
 
+async def safe_background_wg_sync(user_id: int, account_id: str):
+    if not HAS_WG_SYNC:
+        return
+    async with async_session() as standalone_db:
+        try:
+            await sync_wargaming_data(standalone_db, user_id, account_id)
+        except Exception as e:
+            logger.error(f"WG Sync Error: {str(e)}")
+
+# ==========================================
+# STEAM ROUTES
+# ==========================================
 
 @router.get("/connect/steam")
 async def connect_steam_initiate(current_user: User = Depends(get_current_user)):
@@ -68,7 +87,6 @@ async def connect_steam_callback(
     params = dict(request.query_params)
     validation_params = {**params, "openid.mode": "check_authentication"}
     
-    # Додано безпечний тайм-аут
     async with httpx.AsyncClient(timeout=15.0) as client:
         steam_verify = await client.post(STEAM_API_OPENID, data=validation_params)
         
@@ -117,7 +135,6 @@ async def disconnect_steam(
     await db.delete(connection)
     await db.commit()
     
-    # Стираємо старі дані з кешу
     await cache_delete_pattern(f"user:{current_user.id}:*")
     
     return {"status": "success", "message": "Steam відключено."}
@@ -163,7 +180,6 @@ async def search_steam_player(
     }
 
 
-# ДОДАНО: Ендпоінт для отримання списку друзів (бракувало для фронтенду)
 @router.get("/steam/friends/{steam_id}")
 async def get_steam_friends(
     steam_id: str,
@@ -192,3 +208,146 @@ async def force_sync_current_user(
     steam_id = connection.platform_user_id
     background_tasks.add_task(safe_background_steam_sync, current_user.id, steam_id)
     return {"status": "started", "message": "Синхронізацію запущено у фоні. Оновіть сторінку за хвилину."}
+
+# ==========================================
+# WARGAMING ROUTES
+# ==========================================
+
+class WargamingConnectRequest(BaseModel):
+    account_id: str
+    nickname: str
+
+@router.post("/connect/wargaming")
+async def connect_wargaming(
+    request: WargamingConnectRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    stmt = select(PlatformConnection).where(
+        PlatformConnection.user_id == current_user.id,
+        PlatformConnection.platform == "wargaming"
+    )
+    res = await db.execute(stmt)
+    existing = res.scalars().first()
+    
+    if existing:
+        existing.platform_username = request.nickname
+        await db.commit()
+        if HAS_WG_SYNC:
+            background_tasks.add_task(safe_background_wg_sync, current_user.id, request.account_id)
+        return {"status": "success", "message": "World of Tanks вже підключено"}
+
+    new_conn = PlatformConnection(
+        user_id=current_user.id,
+        platform="wargaming",
+        platform_user_id=request.account_id,
+        platform_username=request.nickname,
+        is_primary=False
+    )
+    db.add(new_conn)
+    
+    # ФІКС: Захист від стану гонитви (Race Condition)
+    try:
+        await db.commit()
+        if HAS_WG_SYNC:
+            background_tasks.add_task(safe_background_wg_sync, current_user.id, request.account_id)
+        logger.info(f"Користувач {current_user.username} підключив Wargaming: {request.nickname}")
+    except IntegrityError:
+        await db.rollback()
+        logger.warning(f"Паралельний запит: Wargaming для {request.nickname} вже було створено.")
+        
+    return {"status": "success", "message": "World of Tanks успішно підключено"}
+
+# ==========================================
+# PLAYSTATION ROUTES
+# ==========================================
+
+class PSNConnectRequest(BaseModel):
+    psn_id: str
+
+@router.post("/connect/playstation")
+async def connect_playstation(
+    request: PSNConnectRequest, 
+    db: AsyncSession = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    stmt = select(PlatformConnection).where(
+        PlatformConnection.user_id == current_user.id,
+        PlatformConnection.platform == "playstation"
+    )
+    res = await db.execute(stmt)
+    existing = res.scalars().first()
+    
+    if existing:
+        return {"status": "success", "message": "PlayStation вже підключено"}
+
+    new_conn = PlatformConnection(
+        user_id=current_user.id,
+        platform="playstation",
+        platform_user_id=request.psn_id,
+        platform_username=request.psn_id,
+        is_primary=False
+    )
+    db.add(new_conn)
+    
+    # ФІКС: Захист від стану гонитви
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+
+    return {"status": "success", "message": "PlayStation успішно підключено"}
+
+# ==========================================
+# УПРАВЛІННЯ ПІДКЛЮЧЕННЯМИ (GET & DELETE)
+# ==========================================
+
+@router.get("/connections")
+async def get_user_connections(
+    db: AsyncSession = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    stmt = select(PlatformConnection).where(PlatformConnection.user_id == current_user.id)
+    res = await db.execute(stmt)
+    connections = res.scalars().all()
+    
+    return [
+        {
+            "platform": c.platform, 
+            "platform_username": c.platform_username
+        } 
+        for c in connections
+    ]
+
+@router.delete("/connect/{platform_name}")
+async def disconnect_platform(
+    platform_name: str, 
+    db: AsyncSession = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    stmt = select(PlatformConnection).where(
+        PlatformConnection.user_id == current_user.id,
+        PlatformConnection.platform == platform_name
+    )
+    res = await db.execute(stmt)
+    connection = res.scalar_one_or_none()
+    
+    if not connection:
+        raise HTTPException(status_code=404, detail=f"Підключення {platform_name} не знайдено.")
+
+    pg_ids = (await db.execute(
+        select(PlayerGame.id).where(PlayerGame.connection_id == connection.id)
+    )).scalars().all()
+
+    if pg_ids:
+        await db.execute(delete(PlayerAchievement).where(PlayerAchievement.player_game_id.in_(pg_ids)))
+        await db.execute(delete(PlayerGame).where(PlayerGame.id.in_(pg_ids)))
+
+    await db.delete(connection)
+    await db.commit()
+    
+    await cache_delete_pattern(f"user:{current_user.id}:*")
+    
+    logger.info(f"Користувач {current_user.username} відключив платформу: {platform_name}")
+    return {"status": "success", "message": f"Платформу {platform_name} відключено"}

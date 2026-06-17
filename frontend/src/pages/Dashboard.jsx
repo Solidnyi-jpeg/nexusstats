@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../store";
-import { getOverview, forceSyncCurrentUser } from "../api";
+// Зверни увагу: додано connectPlaystation в імпорти
+import { getOverview, forceSyncCurrentUser, connectPlaystation } from "../api";
 
 // Окремий підкомпонент для картки гри 
 function GameCard({ g, onClick }) {
@@ -81,6 +82,11 @@ export default function Dashboard({ onSyncSuccess }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
 
+  // Стейт для PlayStation
+  const [psnInputOpen, setPsnInputOpen] = useState(false);
+  const [psnId, setPsnId] = useState("");
+  const [psnConnecting, setPsnConnecting] = useState(false);
+
   const fetchData = () => {
     setLoading(true);
     getOverview()
@@ -117,6 +123,19 @@ export default function Dashboard({ onSyncSuccess }) {
     }
   };
 
+  const handleConnectPsn = async () => {
+    if (!psnId.trim()) return;
+    setPsnConnecting(true);
+    try {
+      await connectPlaystation({ psn_id: psnId.trim() });
+      window.location.reload(); 
+    } catch (err) {
+      setSyncMsg(uk ? "❌ Помилка підключення PSN" : "❌ Error connecting PSN");
+    } finally {
+      setPsnConnecting(false);
+    }
+  };
+
   if (loading || syncing) return (
     <div className="loading-screen">
       <div className="cube-wrapper">
@@ -131,7 +150,7 @@ export default function Dashboard({ onSyncSuccess }) {
       </div>
       <div className="loading-text" style={{ textAlign: "center", lineHeight: "1.5", whiteSpace: "pre-line" }}>
         {syncing 
-          ? (uk ? "Синхронізуємо дані зі Steam... ⏱️\nЗачекайте, сторінка оновиться автоматично." : "Syncing with Steam... ⏱️\nPlease wait, the page will reload automatically.") 
+          ? (uk ? "Синхронізуємо дані... ⏱️\nЗачекайте, сторінка оновиться автоматично." : "Syncing data... ⏱️\nPlease wait, the page will reload automatically.") 
           : (uk ? "Завантаження даних..." : "Loading data...")}
       </div>
     </div>
@@ -143,6 +162,131 @@ export default function Dashboard({ onSyncSuccess }) {
     </div>
   );
 
+  const hasData = data.total_games > 0;
+
+  // --- ЕКРАН ПІДКЛЮЧЕННЯ ПЛАТФОРМ (Якщо немає даних) ---
+  if (!hasData) {
+    return (
+      <div style={{ maxWidth: 1000, margin: "60px auto", textAlign: "center", padding: "0 24px" }}>
+        <h1 style={{ color: "var(--text-bright)", fontSize: "2.5rem", marginBottom: 16 }}>
+          {uk ? "Вітаємо в NexusStats!" : "Welcome to NexusStats!"}
+        </h1>
+        <p style={{ color: "var(--text-secondary)", fontSize: "1.1rem", marginBottom: 40, maxWidth: 600, margin: "0 auto 40px" }}>
+          {uk 
+            ? "Ваш профіль ще не містить аналітичних даних. Для початку роботи підключіть ігрову платформу або виконайте синхронізацію." 
+            : "Your profile has no analytics data yet. Connect a gaming platform or run a sync to get started."}
+        </p>
+
+        {syncMsg && <div style={{ color: "var(--accent-red)", marginBottom: 20 }}>{syncMsg}</div>}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 24 }}>
+          
+          {/* Steam Card */}
+          <div className="card" style={{ padding: 32, border: "2px solid #171a21", background: "linear-gradient(180deg, rgba(23,26,33,0.3) 0%, transparent 100%)" }}>
+            <div style={{ fontSize: "3rem", marginBottom: 16 }}>🎮</div>
+            <h3 style={{ color: "var(--text-bright)", fontSize: "1.5rem", marginBottom: 12 }}>Steam</h3>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: 24, minHeight: 40 }}>
+              {uk ? "Підключено. Натисніть кнопку нижче, щоб стягнути ігри." : "Connected. Click below to fetch games."}
+            </p>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleForceSync} 
+              style={{ width: "100%", padding: "12px", background: "#171a21", borderColor: "#2a3f5a" }}
+            >
+              {uk ? "🔄 Синхронізувати Steam" : "🔄 Sync Steam"}
+            </button>
+          </div>
+
+          {/* Wargaming (World of Tanks) Card */}
+          <div className="card" style={{ padding: 32, border: "2px solid rgba(255, 77, 0, 0.4)", position: "relative" }}>
+            <div style={{ fontSize: "3rem", marginBottom: 16 }}>🛡️</div>
+            <h3 style={{ color: "var(--text-bright)", fontSize: "1.5rem", marginBottom: 12 }}>World of Tanks</h3>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: 24, minHeight: 40 }}>
+              {uk ? "Синхронізуйте вінрейт та бойову статистику з акаунту Wargaming." : "Sync winrate and battle stats from your Wargaming account."}
+            </p>
+            <button 
+              className="btn btn-outline" 
+              onClick={() => {
+                  const appId = "7f718cf85a9ad6397aa4c32459518d41"; 
+                  const redirect = encodeURIComponent(`${window.location.origin}/wg-callback`);
+                  window.location.href = `https://api.worldoftanks.eu/wot/auth/login/?application_id=${appId}&redirect_uri=${redirect}`;
+              }}
+              style={{ width: "100%", padding: "12px", borderColor: "#FF4D00", color: "#FF4D00" }}
+            >
+              {uk ? "🔗 Підключити WoT" : "🔗 Connect WoT"}
+            </button>
+          </div>
+
+          {/* PlayStation Card */}
+          <div className="card" style={{ padding: 32, border: "2px solid rgba(0, 55, 145, 0.4)", position: "relative", overflow: "hidden" }}>
+            <div style={{ fontSize: "3rem", marginBottom: 16 }}>🔵</div>
+            <h3 style={{ color: "var(--text-bright)", fontSize: "1.5rem", marginBottom: 12 }}>PlayStation</h3>
+            
+            {!psnInputOpen ? (
+              <>
+                <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: 24, minHeight: 40 }}>
+                  {uk ? "Підключіть ваш PSN ID для синхронізації трофеїв." : "Connect your PSN ID to sync trophies."}
+                </p>
+                <button 
+                  className="btn btn-outline" 
+                  onClick={() => setPsnInputOpen(true)}
+                  style={{ width: "100%", padding: "12px", borderColor: "#003791", color: "#003791" }}
+                >
+                  {uk ? "🔗 Підключити PSN" : "🔗 Connect PSN"}
+                </button>
+              </>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <p style={{ color: "var(--text-secondary)", fontSize: "0.8rem", margin: 0 }}>
+                  {uk ? "Введіть ваш публічний PSN ID:" : "Enter your public PSN ID:"}
+                </p>
+                <input 
+                  type="text" 
+                  value={psnId}
+                  onChange={(e) => setPsnId(e.target.value)}
+                  placeholder="e.g. Kratos_1999"
+                  style={{ padding: "10px 12px", borderRadius: "6px", border: "1px solid #003791", background: "rgba(0, 55, 145, 0.1)", color: "#fff", outline: "none" }}
+                  autoFocus
+                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={handleConnectPsn}
+                    disabled={psnConnecting}
+                    style={{ flex: 1, background: "#003791", borderColor: "#003791" }}
+                  >
+                    {psnConnecting ? "⏳..." : uk ? "Зберегти" : "Save"}
+                  </button>
+                  <button 
+                    className="btn btn-outline" 
+                    onClick={() => setPsnInputOpen(false)}
+                    style={{ padding: "0 12px", borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Xbox Card */}
+          <div className="card" style={{ padding: 32, border: "2px solid rgba(16, 124, 16, 0.3)", opacity: 0.8 }}>
+            <div style={{ fontSize: "3rem", marginBottom: 16 }}>🟢</div>
+            <h3 style={{ color: "var(--text-bright)", fontSize: "1.5rem", marginBottom: 12 }}>Xbox Live</h3>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: 24, minHeight: 40 }}>
+              {uk ? "Статистика досягнень та ігор екосистеми Microsoft." : "Achievements and game stats from Microsoft ecosystem."}
+            </p>
+            <button className="btn btn-outline" style={{ width: "100%", padding: "12px", borderColor: "#107C10", color: "#107C10", cursor: "not-allowed" }}>
+              {uk ? "🚀 В розробці" : "🚀 Coming Soon"}
+            </button>
+          </div>
+
+        </div>
+      </div>
+    );
+  }
+
+  // --- СТАНДАРТНИЙ ДАШБОРД (Якщо є ігри) ---
   const statCards = [
     { icon: "🎮", label: uk ? "Ігор всього" : "Total Games", value: data.total_games, color: "var(--accent)" },
     { icon: "⏱️", label: uk ? "Годин всього" : "Total Hours", value: `${data.total_hours}h`, color: "var(--accent-gold)" },
@@ -182,7 +326,7 @@ export default function Dashboard({ onSyncSuccess }) {
         ))}
       </div>
 
-      {/*  RECENT + TOP  */}
+      {/* RECENT + TOP */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "24px", marginBottom: "32px" }}>
         
         {/* Recent */}
@@ -222,32 +366,6 @@ export default function Dashboard({ onSyncSuccess }) {
           </div>
         </div>
       </div>
-
-      {/* ----------------- PLATFORMS (резерв) ----------------- */}
-      {/* {(data.platforms_breakdown || []).filter(p => p.games > 0).length > 0 && (
-        <div style={{ width: "100%", display: "block" }}>
-          <h2 style={{ color: "var(--text-bright)", fontSize: "1rem", marginBottom: 12 }}>
-            <span aria-hidden="true">🌐</span> {uk ? "По платформах" : "By Platform"}
-          </h2>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            {data.platforms_breakdown
-              .filter(p => p.games > 0)
-              .map(p => (
-              <div key={p.platform} className="card" style={{ padding: "16px 20px", minWidth: 200, flex: "1 1 auto" }}>
-                <div style={{ color: "var(--accent)", fontWeight: 700, fontSize: "1rem", marginBottom: 8, textTransform: "capitalize" }}>
-                  {p.platform === "steam" ? "🎮 Steam" : p.platform}
-                </div>
-                <div style={{ color: "var(--text-secondary)", fontSize: ".8rem", lineHeight: 1.8 }}>
-                  <div>{uk ? "Ігор" : "Games"}: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{p.games}</span></div>
-                  <div>{uk ? "Годин" : "Hours"}: <span style={{ color: "var(--accent-gold)", fontWeight: 600 }}>{p.hours}h</span></div>
-                  <div>{uk ? "Досягнень" : "Achievements"}: <span style={{ color: "var(--accent-purple)", fontWeight: 600 }}>{p.achievements}</span></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      */}
     </div>
   );
 }

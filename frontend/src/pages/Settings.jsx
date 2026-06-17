@@ -1,177 +1,245 @@
-import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { useApp } from '../store';
-import api, { getOverview } from '../api'; // 🔌 Підключаємо наш налаштований Axios
-import './Settings.css';
+import { useState, useEffect } from "react";
+import { useApp } from "../store";
+// Зверни увагу: ми додали getConnections та disconnectPlatform
+import { connectPlaystation, getConnections, disconnectPlatform } from "../api";
 
 export default function Settings() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { theme, toggleTheme, language, changeLanguage } = useApp();
+  const uk = language === "uk";
   
-  const { language } = useApp();
-  const isUk = language === "uk";
-
-  const [connections, setConnections] = useState({
-    steam: false,
-    epic: false,
-    xbox: false,
-    googleplay: false,
-  });
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [processing, setProcessing] = useState(false); // Для блокування кнопок під час відключення
+  const [connections, setConnections] = useState([]); // Стейт для збереження підключених платформ
+  
+  const [psnId, setPsnId] = useState("");
+  const [connectingPsn, setConnectingPsn] = useState(false);
 
-  // 1. ПЕРЕВІРКА НАЯВНИХ ПІДКЛЮЧЕНЬ ПРИ ВХОДІ НА СТОРІНКУ
+  // Завантажуємо список підключених платформ при відкритті сторінки
+  const fetchConnections = () => {
+    setLoading(true);
+    getConnections()
+      .then(res => {
+        setConnections(res.data || []);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
+
   useEffect(() => {
-    // Тепер ми просто викликаємо функцію з api.js, яка сама додасть токен
-    getOverview()
-      .then(response => {
-        const overviewData = response.data;
-        const hasSteam = overviewData.platforms_breakdown?.some(p => p.platform === "steam") || overviewData.total_games > 0;
-        setConnections(prev => ({ ...prev, steam: !!hasSteam }));
-      })
-      .catch(error => {
-        console.error('Помилка перевірки статусів платформ:', error);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+    fetchConnections();
   }, []);
 
-  // 2. ОБРОБКА ПОВЕРНЕННЯ ЗІ STEAM OPENID
-  useEffect(() => {
-    const status = searchParams.get('status');
-    // В нашому бекенді ми повертаємо просто ?sync=success, але я залишив твою логіку для сумісності.
-    // Якщо ти робив редирект на /dashboard?sync=success, то тут варто перевірити саме це.
-    const syncStatus = searchParams.get('sync'); 
-
-    if (status === 'success' || syncStatus === 'success') {
-      setConnections(prev => ({ ...prev, steam: true }));
-      setSearchParams({}); // Очищаємо URL
-      
-      alert(isUk 
-        ? 'Ваш акаунт Steam успішно синхронізовано!' 
-        : 'Your Steam account has been successfully synchronized!'
-      );
-    }
-  }, [searchParams, setSearchParams, isUk]);
-
-  // 3. ІНІЦІАЛІЗАЦІЯ ПІДКЛЮЧЕННЯ STEAM
-  const handleConnectSteam = async () => {
-    setActionLoading(true);
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      // Використовуємо наш екземпляр api
-      const response = await api.get('/platforms/connect/steam');
+      // Отримуємо і дані аналітики, і список реальних підключень
+      const [overviewRes, connRes] = await Promise.all([
+        getOverview().catch(() => ({ data: null })),
+        getConnections().catch(() => ({ data: [] }))
+      ]);
       
-      if (response.data?.url) {
-        window.location.href = response.data.url;
-      } else {
-        alert(isUk ? 'Не вдалося отримати посилання для авторизації від бекенду.' : 'Failed to receive authorization URL from backend.');
+      const connections = connRes.data || [];
+
+      // ЯКЩО ПІДКЛЮЧЕНЬ НЕМАЄ — ВИКИДАЄМО НА WELCOME
+      if (connections.length === 0) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("access_token");
+        window.location.replace("/welcome");
+        return;
       }
-    } catch (error) {
-      console.error('Помилка при спробі підключення Steam:', error);
-      alert(isUk ? 'Сталася помилка з\'єднання з сервером API.' : 'API Server connection error.');
+
+      setData(overviewRes.data);
+      setConnections(connections);
+    } catch (e) {
+      console.error(e);
     } finally {
-      setActionLoading(false);
+      setLoading(false);
     }
   };
 
-  // 4. ЛОГІКА ВІДКЛЮЧЕННЯ STEAM АКАУНТА
-  const handleDisconnectSteam = async () => {
-    const confirmText = isUk 
-      ? "Ви впевнені, що хочете відключити Steam? Усі проіндексовані ігри та досягнення будуть видалені з бази даних."
-      : "Are you sure you want to disconnect Steam? All indexed games and stats will be removed from the database.";
-      
-    if (!window.confirm(confirmText)) return;
+  // Допоміжна функція для пошуку конкретної платформи у списку
+  const getConn = (platformName) => connections.find(c => c.platform === platformName);
 
-    setActionLoading(true);
+  const steamConn = getConn("steam");
+  const wgConn = getConn("wargaming");
+  const psnConn = getConn("playstation");
+
+  // Функція для відключення платформи
+  const handleDisconnect = async (platformName) => {
+    const confirmMsg = uk ? `Ви впевнені, що хочете відключити ${platformName}?` : `Are you sure you want to disconnect ${platformName}?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setProcessing(true);
     try {
-      // Використовуємо правильний ендпоінт через axios
-      await api.delete('/profile/connections/steam');
-      
-      setConnections(prev => ({ ...prev, steam: false }));
-      alert(isUk ? "Акаунт успішно відключено!" : "Account disconnected successfully!");
-    } catch (error) {
-      console.error('Помилка відключення Steam:', error);
-      alert(isUk ? 'Сталася помилка на сервері.' : 'Server error occurred.');
+      await disconnectPlatform(platformName);
+      fetchConnections(); // Оновлюємо список після видалення
+    } catch (err) {
+      console.error(err);
+      alert(uk ? "Помилка відключення" : "Error disconnecting");
     } finally {
-      setActionLoading(false);
+      setProcessing(false);
     }
+  };
+
+  const handleConnectPsn = async () => {
+    if (!psnId.trim()) return;
+    setConnectingPsn(true);
+    try {
+      await connectPlaystation({ psn_id: psnId.trim() });
+      setPsnId("");
+      fetchConnections(); // Оновлюємо список без перезавантаження сторінки!
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setConnectingPsn(false);
+    }
+  };
+
+  const linkWargaming = () => {
+    const appId = "7f718cf85a9ad6397aa4c32459518d41"; 
+    const redirect = encodeURIComponent(`${window.location.origin}/wg-callback`);
+    window.location.href = `https://api.worldoftanks.eu/wot/auth/login/?application_id=${appId}&redirect_uri=${redirect}`;
   };
 
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh" }}>
-      <div style={{ color: "var(--accent)", fontSize: "1.1rem" }}>
-        {isUk ? "Завантаження конфігурації..." : "Loading configuration..."}
+    <div className="loading-screen" style={{ height: "calc(100vh - 60px)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" }}>
+      <div className="cube-wrapper">
+        <div className="cube-3d">
+          <div className="cube-face front"></div>
+          <div className="cube-face back"></div>
+          <div className="cube-face right"></div>
+          <div className="cube-face left"></div>
+          <div className="cube-face top"></div>
+          <div className="cube-face bottom"></div>
+        </div>
+      </div>
+      <div className="loading-text" style={{ textAlign: "center", marginTop: 24, color: "var(--text-bright)" }}>
+        {uk ? "Завантаження налаштувань..." : "Loading settings..."}
       </div>
     </div>
   );
 
   return (
-    <div className="settings-page">
-      <h2>{isUk ? "Керування підключеними платформами" : "Connected Platforms Management"}</h2>
-      <p className="subtitle">
-        {isUk 
-          ? "Безпечно підключайте ігрові профілі в один клік без ручного введення ID." 
-          : "Securely link your gaming profiles in one click without manual ID input."}
-      </p>
+    <div style={{ maxWidth: 800, margin: "0 auto", padding: "40px 24px" }}>
+      <h1 style={{ color: "var(--text-bright)", fontSize: "2rem", marginBottom: 32 }}>
+        {uk ? "Налаштування" : "Settings"}
+      </h1>
 
-      <div className="platforms-grid">
-        {/* Кнопка STEAM */}
-        <div className={`platform-card ${connections.steam ? 'connected' : ''}`}>
-          <div className="platform-info">
-            <div className="platform-icon steam"></div>
-            <div>
-              <h3>Steam</h3>
-              <p>
-                {connections.steam 
-                  ? (isUk ? 'Акаунт успішно підключено' : 'Account connected') 
-                  : (isUk ? 'Офіційна авторизація Steam OpenID' : 'Official Steam OpenID authorization')}
-              </p>
-            </div>
+      {/* --- БЛОК 1: Загальні налаштування --- */}
+      <div className="card" style={{ padding: 32, marginBottom: 32 }}>
+        <h2 style={{ color: "var(--text-bright)", fontSize: "1.2rem", marginBottom: 24 }}>
+          {uk ? "Загальні" : "General"}
+        </h2>
+        
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div>
+            <div style={{ color: "var(--text-bright)", fontWeight: 500 }}>{uk ? "Мова інтерфейсу" : "Language"}</div>
+            <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>{uk ? "Оберіть мову додатку" : "Choose application language"}</div>
           </div>
-          {connections.steam ? (
-            <button 
-              onClick={handleDisconnectSteam} 
-              className="btn-secondary disconnect"
-              disabled={actionLoading}
-            >
-              {actionLoading ? "⏳" : (isUk ? "Вимкнути" : "Disconnect")}
-            </button>
-          ) : (
-            <button 
-              onClick={handleConnectSteam} 
-              className="btn-platform steam-btn"
-              disabled={actionLoading}
-            >
-              {actionLoading ? "⏳" : (isUk ? "Увійти через Steam" : "Sign in through Steam")}
-            </button>
-          )}
-        </div>
-
-        {/* Інші платформи залишаються заблокованими для майбутніх інтеграцій */}
-        <div className="platform-card disabled">
-          <div className="platform-info">
-            <div className="platform-icon epic"></div>
-            <div>
-              <h3>Epic Games Store</h3>
-              <p>{isUk ? "Доступно незабаром (OAuth2)" : "Coming soon (OAuth2)"}</p>
-            </div>
-          </div>
-          <button className="btn-platform" disabled>
-            {isUk ? "Підключити" : "Connect"}
+          <button className="btn btn-outline" onClick={() => changeLanguage(uk ? "en" : "uk")} disabled={processing}>
+            {uk ? "🇬🇧 English" : "🇺🇦 Українська"}
           </button>
         </div>
 
-        <div className="platform-card disabled">
-          <div className="platform-info">
-            <div className="platform-icon xbox"></div>
-            <div>
-              <h3>Xbox Network</h3>
-              <p>{isUk ? "Доступно незабаром (Xbox Live LiveID)" : "Coming soon (Xbox Live LiveID)"}</p>
-            </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ color: "var(--text-bright)", fontWeight: 500 }}>{uk ? "Тема" : "Theme"}</div>
+            <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>{uk ? "Світла або темна тема" : "Light or dark mode"}</div>
           </div>
-          <button className="btn-platform" disabled>
-            {isUk ? "Підключити" : "Connect"}
+          <button className="btn btn-outline" onClick={toggleTheme} disabled={processing}>
+            {theme === "dark" ? "☀️ Світла (Light)" : "🌙 Темна (Dark)"}
           </button>
+        </div>
+      </div>
+
+      {/* --- БЛОК 2: Управління платформами --- */}
+      <div className="card" style={{ padding: 32 }}>
+        <h2 style={{ color: "var(--text-bright)", fontSize: "1.2rem", marginBottom: 24 }}>
+          {uk ? "Підключені платформи" : "Connected Platforms"}
+        </h2>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          
+          {/* Steam */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 16, border: steamConn ? "1px solid var(--accent-green)" : "1px solid var(--border)", borderRadius: 8, background: "rgba(23, 26, 33, 0.2)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ fontSize: "2rem" }}>🎮</div>
+              <div>
+                <div style={{ color: "var(--text-bright)", fontWeight: 600 }}>Steam</div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+                  {steamConn ? (uk ? `Підключено: ${steamConn.platform_username}` : `Connected: ${steamConn.platform_username}`) : (uk ? "Не підключено" : "Not connected")}
+                </div>
+              </div>
+            </div>
+            {steamConn ? (
+               <button className="btn btn-outline" onClick={() => handleDisconnect("steam")} disabled={processing} style={{ borderColor: "var(--accent-red)", color: "var(--accent-red)", padding: "8px 16px" }}>
+                 {uk ? "Відключити" : "Disconnect"}
+               </button>
+            ) : (
+               <button className="btn btn-primary" onClick={() => window.location.href = "http://localhost:8000/api/v1/auth/steam/login"} disabled={processing} style={{ background: "#171a21", borderColor: "#171a21" }}>
+                 {uk ? "Синхронізувати" : "Sync"}
+               </button>
+            )}
+          </div>
+
+          {/* Wargaming */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 16, border: wgConn ? "1px solid var(--accent-green)" : "1px solid var(--border)", borderRadius: 8, background: "rgba(255, 77, 0, 0.05)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ fontSize: "2rem" }}>🛡️</div>
+              <div>
+                <div style={{ color: "var(--text-bright)", fontWeight: 600 }}>Wargaming</div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+                  {wgConn ? (uk ? `Підключено: ${wgConn.platform_username}` : `Connected: ${wgConn.platform_username}`) : "World of Tanks, World of Warships"}
+                </div>
+              </div>
+            </div>
+            {wgConn ? (
+               <button className="btn btn-outline" onClick={() => handleDisconnect("wargaming")} disabled={processing} style={{ borderColor: "var(--accent-red)", color: "var(--accent-red)", padding: "8px 16px" }}>
+                 {uk ? "Відключити" : "Disconnect"}
+               </button>
+            ) : (
+               <button className="btn btn-outline" onClick={linkWargaming} disabled={processing} style={{ borderColor: "#FF4D00", color: "#FF4D00" }}>
+                 {uk ? "Додати акаунт" : "Add Account"}
+               </button>
+            )}
+          </div>
+
+          {/* PSN */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 16, border: psnConn ? "1px solid var(--accent-green)" : "1px solid var(--border)", borderRadius: 8, background: "rgba(0, 55, 145, 0.05)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ fontSize: "2rem" }}>🔵</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "var(--text-bright)", fontWeight: 600 }}>PlayStation Network</div>
+                
+                {psnConn ? (
+                  <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginTop: 4 }}>
+                    {uk ? `Підключено: ${psnConn.platform_username}` : `Connected: ${psnConn.platform_username}`}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <input 
+                      type="text" 
+                      placeholder={uk ? "Введіть PSN ID..." : "Enter PSN ID..."} 
+                      value={psnId}
+                      onChange={(e) => setPsnId(e.target.value)}
+                      disabled={processing || connectingPsn}
+                      style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-bright)", flex: 1 }}
+                    />
+                    <button className="btn btn-outline" onClick={handleConnectPsn} disabled={processing || connectingPsn} style={{ borderColor: "#003791", color: "#003791" }}>
+                      {connectingPsn ? "⏳" : (uk ? "Зберегти" : "Save")}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {psnConn && (
+               <button className="btn btn-outline" onClick={() => handleDisconnect("playstation")} disabled={processing} style={{ borderColor: "var(--accent-red)", color: "var(--accent-red)", padding: "8px 16px" }}>
+                 {uk ? "Відключити" : "Disconnect"}
+               </button>
+            )}
+          </div>
+
         </div>
       </div>
     </div>

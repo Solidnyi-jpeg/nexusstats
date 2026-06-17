@@ -15,10 +15,12 @@ import FriendProfile from "./pages/FriendProfile";
 import DotaStats from "./pages/DotaStats";
 import CsStats from "./pages/CsStats";
 import EsportsHub from "./pages/EsportsHub";
+import WGCallback from "./pages/WGCallback";
+import WoTStats from "./pages/WoTStats"; // <--- ДОДАНО ІМПОРТ WOTSTATS
 
 // Компонент-обгортка для захисту приватних сторінок
 const ProtectedRoute = ({ children }) => {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("token") || localStorage.getItem("access_token");
   if (!token) {
     return <Navigate to="/welcome" replace />;
   }
@@ -27,7 +29,7 @@ const ProtectedRoute = ({ children }) => {
 
 // Layout-обгортка, яка показує Navbar тільки для авторизованих користувачів
 const AppLayout = ({ children }) => {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("token") || localStorage.getItem("access_token");
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", backgroundColor: "var(--bg-main)" }}>
       {token && <Navbar />}
@@ -44,11 +46,11 @@ export default function App() {
       <Router>
         <AppLayout>
           <Routes>
-            {/* ФІКС: Розумний базовий редирект */}
+            {/* Розумний базовий редирект */}
             <Route 
               path="/" 
               element={
-                localStorage.getItem("token") 
+                (localStorage.getItem("token") || localStorage.getItem("access_token"))
                   ? <Navigate to="/dashboard" replace /> 
                   : <Navigate to="/welcome" replace />
               } 
@@ -57,6 +59,9 @@ export default function App() {
             {/* Публічні маршрути для входу */}
             <Route path="/welcome" element={<Welcome />} />
             <Route path="/auth/callback" element={<Welcome />} /> 
+            
+            {/* Маршрут для перехоплення відповіді від Wargaming */}
+            <Route path="/wg-callback" element={<WGCallback />} />
 
             {/* Приватні маршрути */}
             <Route path="/dashboard" element={
@@ -96,6 +101,12 @@ export default function App() {
                 </ProtectedRoute>
               } />
 
+              <Route path="/wot" element={
+                <ProtectedRoute>
+                  <WoTStats />
+                </ProtectedRoute>
+              } />
+
             <Route path="/games/:platform/:gameId" element={
               <ProtectedRoute>
                 <GameDetail />
@@ -124,7 +135,7 @@ export default function App() {
             <Route 
               path="*" 
               element={
-                localStorage.getItem("token") 
+                (localStorage.getItem("token") || localStorage.getItem("access_token"))
                   ? <Navigate to="/dashboard" replace /> 
                   : <Navigate to="/welcome" replace />
               } 

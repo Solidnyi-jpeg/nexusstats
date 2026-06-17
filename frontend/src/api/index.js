@@ -11,7 +11,8 @@ const api = axios.create({
 // Перехоплювач запитів — автоматично підкидає токен
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("token");
+    // Шукаємо токен в localStorage (перевіряємо обидві назви для надійності)
+    const token = localStorage.getItem("token") || localStorage.getItem("access_token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -22,9 +23,7 @@ api.interceptors.request.use(
   }
 );
 
-// ... твій імпорт axios та налаштування ...
-
-// Додаємо перехоплювач відповідей
+// Перехоплювач відповідей
 api.interceptors.response.use(
   (response) => {
     return response;
@@ -34,6 +33,7 @@ api.interceptors.response.use(
     if (error.response && error.response.status === 401) {
       console.warn("Токен недійсний або закінчився. Виконуємо вихід...");
       localStorage.removeItem("token");
+      localStorage.removeItem("access_token");
       
       // Якщо ми вже не на сторінці welcome, кидаємо туди
       if (window.location.pathname !== "/welcome") {
@@ -43,8 +43,6 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-
-// ... далі твої експорти функцій (getOverview, getPublicProfile і т.д.)
 
 // ==========================================
 // ЕНДПОІНТИ (ENDPOINTS)
@@ -86,10 +84,6 @@ export const getFriends = (steamId) =>
 export const forceSyncCurrentUser = () =>
   api.post("/platforms/steam/force-sync");
 
-export const disconnectSteam = () =>
-  api.post("/platforms/disconnect/steam");
-
-
 // --- Профілі (Закладки та публічні сторінки) ---
 export const getPublicProfile = (steamId) => 
   api.get(`/profile/${steamId}`);
@@ -107,6 +101,39 @@ export const setupDebug = (steamId) =>
 
 export const clearDebugData = () =>
   api.post("/debug/clear");
+
+
+// ==========================================
+// НОВІ ЕНДПОІНТИ (ПЛАТФОРМИ ТА МУЛЬТИ-ЛОГІН)
+// ==========================================
+
+// --- Логін та Авторизація ---
+export const loginWargaming = async (data) => {
+  return await api.post("/auth/wargaming/login", data);
+};
+
+// --- Підключення платформ до існуючого профілю ---
+export const connectPlaystation = async (psn_data) => {
+  return await api.post("/platforms/connect/playstation", psn_data);
+};
+
+export const connectWargaming = async (data) => {
+  return await api.post("/platforms/connect/wargaming", data);
+};
+
+// --- Управління підключеннями ---
+export const getConnections = async () => {
+  return await api.get("/platforms/connections");
+};
+
+export const disconnectPlatform = async (platformName) => {
+  return await api.delete(`/platforms/connect/${platformName}`);
+};
+
+// --- Специфічна статистика ---
+export const getWgStats = async () => {
+  return await api.get("/analytics/wargaming");
+};
 
 
 export { API_URL };
