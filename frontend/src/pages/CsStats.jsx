@@ -100,33 +100,32 @@ export default function CsStats() {
       </h2>
       
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 40 }}>
-        {finalMapPool.map(m => (
+        {/* Додано .filter() щоб залишати лише карти з матчами */}
+        {finalMapPool.filter(m => m.hasMatches).map(m => (
           <div key={m.id} className="card" style={{ 
             borderRadius: 12, 
             padding: "20px 24px",
             display: "flex", 
             justifyContent: "space-between", 
             alignItems: "center",
-            borderStyle: m.hasMatches ? "solid" : "dashed",
-            opacity: m.hasMatches ? 1 : 0.5,
             transition: "all 0.2s ease"
           }}>
             <div>
-              <div style={{ color: m.hasMatches ? "var(--text-primary, inherit)" : "var(--text-secondary)", fontSize: "1.2rem", fontWeight: 700, letterSpacing: -0.3 }}>
+              <div style={{ color: "var(--text-primary, inherit)", fontSize: "1.2rem", fontWeight: 700, letterSpacing: -0.3 }}>
                 {m.name}
               </div>
               <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginTop: 4, fontWeight: 500 }}>
-                {m.hasMatches ? `~${m.matches} ${uk ? "матчів" : "matches"}` : (uk ? "Немає матчів" : "No matches")}
+                ~{m.matches} {uk ? "матчів" : "matches"}
               </div>             
             </div>
             
             <div style={{ textAlign: "right" }}>
               <div style={{ 
-                color: !m.hasMatches ? "var(--text-secondary)" : (m.winrate >= 50 ? "var(--accent-green, #10b981)" : "var(--accent-red, #ef4444)"), 
+                color: m.winrate >= 50 ? "var(--accent-green, #10b981)" : "var(--accent-red, #ef4444)", 
                 fontSize: "1.5rem", 
                 fontWeight: 800 
               }}>
-                {m.hasMatches ? `${m.winrate}%` : "—"}
+                {m.winrate}%
               </div>
               <div style={{ color: "var(--text-secondary)", fontSize: "0.65rem", fontWeight: 700, letterSpacing: 0.5, marginTop: 2 }}>
                 {uk ? "ВІНРЕЙТ" : "WINRATE"}
@@ -134,6 +133,12 @@ export default function CsStats() {
             </div>
           </div>
         ))}
+        {/* Опціонально: Якщо жодної карти немає, можна показати повідомлення */}
+        {finalMapPool.filter(m => m.hasMatches).length === 0 && (
+          <div style={{ color: "var(--text-secondary)", padding: "10px 0" }}>
+            {uk ? "Ще немає зіграних матчів на цих картах." : "No matches played on these maps yet."}
+          </div>
+        )}
       </div>
 
       {/* Арсенал зброї */}
